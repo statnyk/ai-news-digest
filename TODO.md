@@ -7,10 +7,71 @@
 - [x] GitHub Pages — деплоится автоматически (только фронтенд, без API)
 - [x] Docker image `ghcr.io/statnyk/ai-news-digest:latest` — собирается при пуше в `main`
 - [x] GitHub Actions — два workflow: Pages deploy + Docker build/push
+- [x] `DATABASE_URL` support — Railway/Render/Heroku подключаются автоматически
+- [x] `railway.json` — конфиг для авто-деплоя на Railway
 
 ## Известные проблемы
 
-- **404/405 на GitHub Pages** — это нормально. GitHub Pages = статика, API там не работает. Решение: развернуть Docker на VPS (см. ниже)
+- **404/405 на GitHub Pages** — это нормально. GitHub Pages = статика, API там не работает. Решение: развернуть бэкенд на Railway (см. ниже)
+
+---
+
+## 🚀 Быстрый старт — Railway (рекомендуется)
+
+> Авто-деплой бэкенда при каждом пуше в `main`. HTTPS, PostgreSQL и Qdrant — всё управляется через Railway.
+
+### Шаг 1 — Создать проект на Railway
+
+1. Зайти на [railway.app](https://railway.app) → **New Project**
+2. Выбрать **Deploy from GitHub repo** → выбрать `statnyk/ai-news-digest`
+3. Railway найдёт `Dockerfile` и `railway.json` → нажать **Deploy**
+
+### Шаг 2 — Добавить PostgreSQL
+
+В проекте: **+ New** → **Database** → **Add PostgreSQL**
+
+Railway автоматически добавит переменную `DATABASE_URL` в сервис приложения.
+
+### Шаг 3 — Добавить Qdrant
+
+В проекте: **+ New** → **Docker Image** → ввести `qdrant/qdrant:v1.12.4`
+
+После деплоя Qdrant зайти в его **Variables** и скопировать внутренний hostname (вида `qdrant.railway.internal`).
+
+В переменных приложения добавить:
+```
+QDRANT_URL=http://qdrant.railway.internal:6333
+```
+
+### Шаг 4 — Добавить переменные окружения
+
+В сервисе приложения → **Variables** → добавить:
+
+| Переменная | Значение |
+|---|---|
+| `OPENAI_API_KEY` | ключ OpenAI |
+| `RSS_FEEDS` | RSS фиды через запятую |
+| `NODE_ENV` | `production` |
+
+> `DATABASE_URL` Railway добавит сам из PostgreSQL сервиса.
+
+### Шаг 5 — Получить домен
+
+В сервисе приложения → **Settings** → **Networking** → **Generate Domain**
+
+Railway выдаст домен вида `ai-news-digest-production.up.railway.app`.
+
+### Шаг 6 — Связать GitHub Pages с Railway API
+
+1. Зайти в репо GitHub → **Settings** → **Secrets and variables** → **Actions**
+2. Добавить секрет: `VITE_API_URL` = `https://ai-news-digest-production.up.railway.app`
+3. Перезапустить workflow **Build & Deploy to GitHub Pages**
+
+### Результат
+
+- Пуш в `main` → Railway автоматически пересобирает и деплоит бэкенд
+- Пуш в `main` → GitHub Actions деплоит фронтенд на GitHub Pages
+- GitHub Pages → обращается к Railway API → PostgreSQL + Qdrant
 
 ---
 
