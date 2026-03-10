@@ -826,6 +826,10 @@
     padding: 4px 4px 4px 14px;
   }
 
+  .chat-input {
+    font-size: 16px; /* prevent iOS Safari zoom-on-focus */
+  }
+
   .chat-welcome {
     padding: 32px 20px;
     gap: 16px;
