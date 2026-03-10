@@ -1,24 +1,30 @@
 /* ─── Layout ─────────────────────────────────────────────────── */
 
+#main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
 .chat-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 65px);
+  flex: 1;
+  min-height: 0;
   max-width: 780px;
+  width: 100%;
   margin: 0 auto;
   font-family: "Inter", sans-serif;
 }
 
-/* ─── Header (full-width, sticky) ────────────────────────────── */
+/* ─── Header (full-width, fixed top) ─────────────────────────── */
 
 .chat-header {
   width: 100%;
   background: var(--color-white);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  position: sticky;
-  top: 0;
   z-index: 10;
-  backdrop-filter: blur(12px);
   flex-shrink: 0;
 }
 
@@ -137,7 +143,9 @@
 
 .chat-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
   display: flex;
   flex-direction: column;
@@ -267,6 +275,8 @@
   border-radius: 16px;
   line-height: 1.6;
   font-size: 14px;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .chat-message-user .chat-message-bubble {
@@ -718,7 +728,6 @@
 @media (max-width: 809.98px) {
   .chat-container {
     max-width: 100%;
-    height: calc(100vh - 57px);
   }
 
   .chat-header-inner {

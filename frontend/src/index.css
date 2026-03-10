@@ -41,6 +41,17 @@ body,
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+html {
+  height: 100dvh;
+  height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  html { height: 100dvh; }
 }
 
 :root {
