@@ -173,7 +173,7 @@ export async function runIngestion() {
   const feeds = config.rss.feeds;
   if (feeds.length === 0) {
     log("RSS", "No RSS feeds configured. Set RSS_FEEDS in .env");
-    return;
+    return { totalFetched: 0, totalInserted: 0, totalSkipped: 0, totalErrors: 0 };
   }
 
   const stats = { totalFetched: 0, totalInserted: 0, totalSkipped: 0, totalErrors: 0 };
