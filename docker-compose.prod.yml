@@ -1,0 +1,60 @@
+# Production overlay: adds Caddy (reverse proxy + HTTPS) and Watchtower (auto-updates)
+#
+# Usage on VPS:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Required env variables (add to .env):
+#   DOMAIN=your-domain.com      — domain for Caddy / Let's Encrypt
+#
+# Optional env variables:
+#   WATCHTOWER_SCHEDULE          — cron schedule, default: every day at 03:00
+#   LETSENCRYPT_EMAIL            — email for Let's Encrypt notifications
+
+services:
+  # Override app: don't expose port directly, Caddy handles traffic
+  app:
+    ports: []
+
+  # ─── Caddy — reverse proxy + automatic HTTPS ─────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: ai-news-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:-your-domain.com}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
+    depends_on:
+      - app
+
+  # ─── Watchtower — auto-pull & restart updated Docker images ──
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: ai-news-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Check for new images on a schedule (cron format)
+      WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 3 * * *}
+      # Only watch containers with this label (set on app service above)
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+    command: --interval 0   # disabled when SCHEDULE is set
+
+  # Override app labels so Watchtower tracks only this container
+  app:
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -35,6 +35,9 @@ jobs:
         working-directory: frontend
         env:
           GITHUB_PAGES: 'true'
+          # If VITE_API_URL secret is set, GitHub Pages will call your remote API
+          # Add it in: Settings → Secrets and variables → Actions → New repository secret
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

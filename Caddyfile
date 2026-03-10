@@ -1,0 +1,34 @@
+# Caddyfile — reverse proxy with automatic HTTPS (Let's Encrypt)
+#
+# Usage:
+#   1. Set YOUR_DOMAIN in this file (or pass via env: {$DOMAIN})
+#   2. Make sure ports 80 and 443 are open on your VPS
+#   3. Run:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Caddy auto-obtains and renews TLS certificates from Let's Encrypt.
+# Replace "your-domain.com" with your actual domain before deploying.
+
+{$DOMAIN:your-domain.com} {
+    # Proxy all traffic to the app container
+    reverse_proxy app:3001
+
+    # Enable gzip compression
+    encode gzip
+
+    # Security headers
+    header {
+        # Prevent clickjacking
+        X-Frame-Options DENY
+        # Prevent MIME type sniffing
+        X-Content-Type-Options nosniff
+        # Enable HSTS (1 year)
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # Remove server fingerprint
+        -Server
+    }
+
+    # Access log
+    log {
+        output stdout
+    }
+}

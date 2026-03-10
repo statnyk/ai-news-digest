@@ -45,22 +45,60 @@ docker compose pull && docker compose up -d
 
 Приложение будет на `http://your-vps-ip:3001` (фронтенд + API вместе).
 
-### 2. Reverse proxy + HTTPS (опционально)
+### 2. Reverse proxy + HTTPS ✅
 
-- [ ] Настроить Nginx или Caddy перед портом 3001
-- [ ] Получить SSL сертификат (Let's Encrypt / Caddy auto-HTTPS)
-- [ ] Привязать домен
+- [x] Создан `Caddyfile` — Caddy автоматически получает SSL сертификат от Let's Encrypt
+- [x] Создан `docker-compose.prod.yml` — overlay с Caddy поверх основного compose
 
-### 3. Связать GitHub Pages с бэкендом (опционально)
+**Запуск с HTTPS на VPS:**
 
-- [ ] Добавить GitHub Secret `VITE_API_URL=https://your-domain.com`
-- [ ] Обновить `.github/workflows/deploy.yml` — передать `VITE_API_URL` при билде фронтенда
-- [ ] После этого GitHub Pages будет работать с удалённым API
+```bash
+# Добавить в .env:
+DOMAIN=your-domain.com
+LETSENCRYPT_EMAIL=you@example.com   # опционально, для уведомлений
 
-### 4. Авто-обновление на VPS (опционально)
+# Запустить с production overlay:
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
 
-- [ ] Настроить Watchtower для автоматического pull новых образов
-- [ ] Или добавить GitHub Actions step с SSH deploy после push образа
+Caddy сам получит и будет обновлять сертификат. Приложение будет на `https://your-domain.com`.
+
+### 3. Связать GitHub Pages с бэкендом ✅
+
+- [x] В `.github/workflows/deploy.yml` добавлена передача `VITE_API_URL` при билде фронтенда
+
+**Что нужно сделать вручную:**
+1. Зайти в репо → Settings → Secrets and variables → Actions
+2. Добавить секрет `VITE_API_URL=https://your-domain.com`
+3. Перезапустить workflow Pages — GitHub Pages начнёт обращаться к вашему API
+
+### 4. Авто-обновление на VPS ✅
+
+- [x] Watchtower добавлен в `docker-compose.prod.yml` — следит за обновлениями образов
+- [x] В `.github/workflows/docker.yml` добавлен job `deploy` — SSH деплой после пуша образа
+
+**SSH деплой (опционально, если нужен мгновенный деплой):**
+
+Добавить GitHub Secrets:
+
+| Secret | Описание |
+|---|---|
+| `SSH_HOST` | IP или домен VPS |
+| `SSH_USER` | SSH пользователь (например, `ubuntu`) |
+| `SSH_KEY` | Приватный SSH ключ |
+| `SSH_PORT` | SSH порт (по умолчанию 22) |
+| `DEPLOY_PATH` | Путь к проекту (по умолчанию `~/ai-news-digest`) |
+
+После добавления секретов — при каждом пуше в `main` новый образ автоматически деплоится на VPS.
+
+**Watchtower (альтернатива — деплой по расписанию):**
+
+Watchtower запускается каждую ночь в 03:00 и обновляет контейнеры.
+Расписание можно изменить через `WATCHTOWER_SCHEDULE` в `.env`:
+
+```env
+WATCHTOWER_SCHEDULE=0 0 3 * * *   # каждый день в 03:00 (cron-формат)
+```
 
 ---
 
@@ -79,11 +117,18 @@ cd frontend && npm run dev
 # Пересобрать Docker локально
 docker compose build app
 
-# Обновить на VPS
+# Обновить на VPS (базовый, без HTTPS)
 docker compose pull && docker compose up -d
+
+# Обновить на VPS (production, с Caddy + Watchtower)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # Логи приложения
 docker compose logs -f app
+
+# Логи Caddy
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f caddy
 
 # Запустить пайплайн (ingestion + indexing + digest)
 # Через API:
