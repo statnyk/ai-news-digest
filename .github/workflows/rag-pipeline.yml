@@ -1,0 +1,30 @@
+name: RAG Pipeline — Ingest, Index & Digest
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # every day at 06:00 UTC
+  workflow_dispatch: # manual trigger from GitHub UI
+
+jobs:
+  pipeline:
+    name: Run pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Trigger pipeline on Railway
+        env:
+          APP_URL: ${{ vars.RAILWAY_APP_URL }}
+        run: |
+          URL="${APP_URL:-https://ai-news-digest-production.up.railway.app}"
+          echo "Calling $URL/api/pipeline ..."
+
+          RESPONSE=$(curl -fsS -X POST "$URL/api/pipeline" \
+            -H "Content-Type: application/json" \
+            --max-time 600)
+
+          echo "$RESPONSE"
+
+          # Fail the job if the response doesn't look like a successful pipeline result
+          echo "$RESPONSE" | grep -q '"ingested"' || \
+            (echo "Pipeline response missing expected fields" && exit 1)
