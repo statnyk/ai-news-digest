@@ -1,0 +1,98 @@
+{
+  "name": "01 — RSS → Database Ingestion",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "id": "trigger-schedule",
+      "name": "Schedule (Every 6h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RSS Feed URLs from environment or hardcoded\nconst feeds = [\n  'https://techcrunch.com/category/artificial-intelligence/feed/',\n  'https://feeds.arstechnica.com/arstechnica/technology-lab',\n  'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml'\n];\n\nreturn feeds.map(url => ({ json: { feedUrl: url } }));"
+      },
+      "id": "feed-list",
+      "name": "Feed URL List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.feedUrl }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "rss-read",
+      "name": "RSS Read",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize RSS items into consistent article records\nconst SOURCE_MAP = {\n  'techcrunch.com': 'TechCrunch',\n  'arstechnica.com': 'Ars Technica',\n  'theverge.com': 'The Verge'\n};\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const feedUrl = data.feedUrl || '';\n  \n  // Determine source name\n  let source = 'Unknown';\n  for (const [domain, name] of Object.entries(SOURCE_MAP)) {\n    if ((data.link || feedUrl).includes(domain)) {\n      source = name;\n      break;\n    }\n  }\n  \n  // Extract category\n  const category = (data.categories && data.categories[0]) \n    ? (typeof data.categories[0] === 'string' ? data.categories[0] : 'ai')\n    : 'ai';\n  \n  // Clean content (strip HTML)\n  const content = (data['content:encoded'] || data.content || data.contentSnippet || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n  \n  const summary = (data.contentSnippet || data.summary || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 500);\n  \n  results.push({\n    json: {\n      title: (data.title || 'Untitled').trim(),\n      url: (data.link || data.guid || '').trim(),\n      source,\n      published_at: data.isoDate || data.pubDate || new Date().toISOString(),\n      category: category.toLowerCase(),\n      summary: summary || null,\n      content: content || null\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "normalize",
+      "name": "Normalize Articles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO articles (title, url, source, published_at, category, summary, content)\nVALUES ('{{ $json.title }}', '{{ $json.url }}', '{{ $json.source }}', '{{ $json.published_at }}', '{{ $json.category }}', '{{ $json.summary }}', '{{ $json.content }}')\nON CONFLICT (url) DO NOTHING\nRETURNING id, title;",
+        "additionalFields": {}
+      },
+      "id": "postgres-insert",
+      "name": "Insert to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1180, 400],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "PostgreSQL — AI News Digest"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Count results\nconst items = $input.all();\nconst inserted = items.filter(i => i.json.id).length;\nconst total = items.length;\n\nreturn [{\n  json: {\n    message: `Ingestion complete: ${inserted} new articles inserted out of ${total} processed.`,\n    inserted,\n    total,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "summary",
+      "name": "Ingestion Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 400]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Feed URL List", "type": "main", "index": 0 }]] },
+    "Schedule (Every 6h)": { "main": [[{ "node": "Feed URL List", "type": "main", "index": 0 }]] },
+    "Feed URL List": { "main": [[{ "node": "RSS Read", "type": "main", "index": 0 }]] },
+    "RSS Read": { "main": [[{ "node": "Normalize Articles", "type": "main", "index": 0 }]] },
+    "Normalize Articles": { "main": [[{ "node": "Insert to PostgreSQL", "type": "main", "index": 0 }]] },
+    "Insert to PostgreSQL": { "main": [[{ "node": "Ingestion Summary", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{ "name": "ai-news-digest" }]
+}

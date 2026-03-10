@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "title": "OpenAI Announces New Reasoning Model with Extended Thinking",
+    "url": "https://techcrunch.com/2026/03/09/openai-reasoning-model",
+    "source": "TechCrunch",
+    "published_at": "2026-03-09T14:30:00Z",
+    "category": "ai",
+    "summary": "OpenAI has released a new model that demonstrates improved reasoning capabilities, featuring an extended thinking mode for complex problems.",
+    "content": "OpenAI has released a new model that demonstrates improved reasoning capabilities...",
+    "ingested_at": "2026-03-09T15:00:00Z",
+    "indexed_at": "2026-03-09T15:01:00Z"
+  },
+  {
+    "id": 2,
+    "title": "Google DeepMind Achieves Breakthrough in Protein Folding Prediction",
+    "url": "https://arstechnica.com/2026/03/08/deepmind-alphafold",
+    "source": "Ars Technica",
+    "published_at": "2026-03-08T10:00:00Z",
+    "category": "ai",
+    "summary": "DeepMind's latest AlphaFold iteration can now predict protein interactions with near-atomic accuracy.",
+    "content": "DeepMind's latest AlphaFold iteration can now predict protein interactions...",
+    "ingested_at": "2026-03-08T12:00:00Z",
+    "indexed_at": "2026-03-08T12:01:00Z"
+  },
+  {
+    "id": 3,
+    "title": "EU AI Act Enforcement Begins: What Companies Need to Know",
+    "url": "https://theverge.com/2026/03/07/eu-ai-act-enforcement",
+    "source": "The Verge",
+    "published_at": "2026-03-07T08:00:00Z",
+    "category": "ai",
+    "summary": "The European Union's AI Act enters its enforcement phase, requiring companies deploying high-risk AI systems to register and comply.",
+    "content": "The European Union's AI Act enters its enforcement phase this week...",
+    "ingested_at": "2026-03-07T09:00:00Z",
+    "indexed_at": "2026-03-07T09:01:00Z"
+  }
+]

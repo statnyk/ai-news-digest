@@ -1,0 +1,76 @@
+{
+  "name": "02 — Weekly Digest (Markdown)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 9 * * 1" }]
+        }
+      },
+      "id": "trigger-weekly",
+      "name": "Weekly (Mon 9AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title, url, source, published_at, category, summary\nFROM articles\nWHERE published_at >= NOW() - INTERVAL '7 days'\nORDER BY category, published_at DESC;",
+        "additionalFields": {}
+      },
+      "id": "fetch-articles",
+      "name": "Fetch Last 7 Days",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [500, 400],
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "PostgreSQL — AI News Digest"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const articles = $input.all().map(i => i.json);\n\n// Date range\nconst now = new Date();\nconst weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);\nconst fmt = d => new Date(d).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\nconst fmtShort = d => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });\n\n// Group by category\nconst grouped = {};\nfor (const a of articles) {\n  const cat = a.category || 'general';\n  if (!grouped[cat]) grouped[cat] = [];\n  grouped[cat].push(a);\n}\n\n// Build markdown\nconst lines = [\n  '# 📰 AI News Weekly Digest',\n  '',\n  `**${fmt(weekAgo)} — ${fmt(now)}**`,\n  '',\n  `> ${articles.length} articles from ${new Set(articles.map(a => a.source)).size} sources`,\n  '',\n  '---',\n  ''\n];\n\nconst sorted = Object.entries(grouped).sort((a, b) => b[1].length - a[1].length);\n\nfor (const [cat, arts] of sorted) {\n  const label = cat.charAt(0).toUpperCase() + cat.slice(1);\n  lines.push(`## ${label} (${arts.length})`);\n  lines.push('');\n  \n  for (const a of arts) {\n    const date = a.published_at ? fmtShort(a.published_at) : 'Date N/A';\n    const summary = a.summary \n      ? a.summary.slice(0, 200) + (a.summary.length > 200 ? '...' : '')\n      : '_No summary available._';\n    lines.push(`### [${a.title}](${a.url})`);\n    lines.push('');\n    lines.push(`📅 ${date} · 📡 ${a.source}`);\n    lines.push('');\n    lines.push(summary);\n    lines.push('');\n  }\n  lines.push('---');\n  lines.push('');\n}\n\nlines.push(`_Generated on ${fmt(now)} by AI News Digest._`);\n\nreturn [{ json: { markdown: lines.join('\\n'), articleCount: articles.length } }];"
+      },
+      "id": "generate-markdown",
+      "name": "Generate Markdown Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 400]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ 'weekly-digest-' + new Date().toISOString().slice(0, 10) + '.md' }}",
+        "dataPropertyName": "markdown"
+      },
+      "id": "write-file",
+      "name": "Write Digest File",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [1060, 400],
+      "disabled": false
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Fetch Last 7 Days", "type": "main", "index": 0 }]] },
+    "Weekly (Mon 9AM)": { "main": [[{ "node": "Fetch Last 7 Days", "type": "main", "index": 0 }]] },
+    "Fetch Last 7 Days": { "main": [[{ "node": "Generate Markdown Digest", "type": "main", "index": 0 }]] },
+    "Generate Markdown Digest": { "main": [[{ "node": "Write Digest File", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{ "name": "ai-news-digest" }]
+}
