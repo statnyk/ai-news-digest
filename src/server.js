@@ -37,6 +37,10 @@ function getLatestDigest() {
   return null;
 }
 
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
 app.post("/api/chat", async (req, res) => {
   try {
     const result = await handleChatRequest(req.body);
