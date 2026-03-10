@@ -4,6 +4,7 @@
   "description": "AI News Digest + RAG Agent — RSS ingestion, weekly digest, vector indexing, and RAG chat powered by n8n",
   "type": "module",
   "scripts": {
+    "build": "npm ci --prefix frontend && npm run build --prefix frontend",
     "migrate": "node src/migrations/run.js",
     "ingest": "node src/services/rssIngestion.js",
     "digest": "node src/services/weeklyDigest.js",
