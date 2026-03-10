@@ -9,13 +9,16 @@ dotenv.config({ path: resolve(__dirname, "../../.env") });
 
 const config = {
   // ─── Postgres ─────────────────────────────────────────────
-  db: {
-    host: process.env.POSTGRES_HOST || "localhost",
-    port: parseInt(process.env.POSTGRES_PORT || "5432", 10),
-    database: process.env.POSTGRES_DB || "ai_news_digest",
-    user: process.env.POSTGRES_USER || "postgres",
-    password: process.env.POSTGRES_PASSWORD || "changeme",
-  },
+  // Supports DATABASE_URL (Railway/Render/Heroku) or individual POSTGRES_* vars
+  db: process.env.DATABASE_URL
+    ? { connectionString: process.env.DATABASE_URL, ssl: process.env.PGSSLMODE !== "disable" ? { rejectUnauthorized: false } : false }
+    : {
+        host: process.env.POSTGRES_HOST || "localhost",
+        port: parseInt(process.env.POSTGRES_PORT || "5432", 10),
+        database: process.env.POSTGRES_DB || "ai_news_digest",
+        user: process.env.POSTGRES_USER || "postgres",
+        password: process.env.POSTGRES_PASSWORD || "changeme",
+      },
 
   // ─── Qdrant ───────────────────────────────────────────────
   qdrant: {
