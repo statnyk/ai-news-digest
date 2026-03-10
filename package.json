@@ -10,15 +10,18 @@
     "index": "node src/services/vectorIndexing.js",
     "chat": "node src/services/ragChat.js",
     "setup": "node scripts/setup.js",
-    "demo": "node scripts/demo.js"
+    "demo": "node scripts/demo.js",
+    "api": "node src/server.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
-    "pg": "^8.13.1",
-    "rss-parser": "^3.13.0",
-    "openai": "^4.77.0",
     "@qdrant/js-client-rest": "^1.12.0",
-    "readline": "^1.3.0"
+    "cors": "^2.8.6",
+    "dotenv": "^16.4.7",
+    "express": "^5.2.1",
+    "openai": "^4.77.0",
+    "pg": "^8.13.1",
+    "readline": "^1.3.0",
+    "rss-parser": "^3.13.0"
   },
   "engines": {
     "node": ">=18.0.0"
