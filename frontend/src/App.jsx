@@ -220,6 +220,19 @@ function WelcomeScreen({ mode, onSuggestionClick }) {
   );
 }
 
+function ApiOfflineBanner() {
+  return (
+    <div className="api-offline-banner">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+      <span>Backend API not connected. Run <code>npm run dev</code> locally to use chat and digest features.</span>
+    </div>
+  );
+}
+
 export default function App() {
   const [mode, setMode] = useState("chat");
   const [chatMessages, setChatMessages] = useState([]);
@@ -230,11 +243,20 @@ export default function App() {
   const [error, setError] = useState(null);
   const [lastFailedInput, setLastFailedInput] = useState(null);
   const [drawerSources, setDrawerSources] = useState(null);
+  const [apiOnline, setApiOnline] = useState(true);
 
   const messages = mode === "chat" ? chatMessages : digestMessages;
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/digest`, { method: "HEAD" })
+      .then((r) => { if (!cancelled) setApiOnline(r.ok || r.status < 500); })
+      .catch(() => { if (!cancelled) setApiOnline(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -445,6 +467,8 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {!apiOnline && <ApiOfflineBanner />}
 
       <div className="chat-container">
         <div className="chat-messages">
