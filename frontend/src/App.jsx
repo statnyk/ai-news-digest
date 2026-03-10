@@ -228,7 +228,7 @@ function ApiOfflineBanner() {
         <line x1="12" y1="8" x2="12" y2="12" />
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </svg>
-      <span>Backend API not connected. Run <code>npm run dev</code> locally to use chat and digest features.</span>
+      <span>Backend API unavailable. Chat and digest features may not work.</span>
     </div>
   );
 }
@@ -252,7 +252,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_BASE}/api/digest`, { method: "HEAD" })
+    fetch(`${API_BASE}/api/health`)
       .then((r) => { if (!cancelled) setApiOnline(r.ok || r.status < 500); })
       .catch(() => { if (!cancelled) setApiOnline(false); });
     return () => { cancelled = true; };
