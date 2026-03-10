@@ -34,6 +34,27 @@ services:
       timeout: 3s
       retries: 5
 
+  # ─── App (API + Frontend) ────────────────────────────────────
+  app:
+    image: ghcr.io/statnyk/ai-news-digest:latest
+    build: .
+    container_name: ai-news-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      QDRANT_URL: http://qdrant:6333
+      API_PORT: "3001"
+    ports:
+      - "${API_PORT:-3001}:3001"
+    volumes:
+      - app_outputs:/app/outputs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
   # ─── n8n Workflow Engine ─────────────────────────────────────
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
@@ -65,3 +86,4 @@ volumes:
   postgres_data:
   qdrant_data:
   n8n_data:
+  app_outputs:
