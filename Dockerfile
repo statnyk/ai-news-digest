@@ -22,6 +22,6 @@ RUN mkdir -p /app/outputs
 ENV NODE_ENV=production
 ENV API_PORT=3001
 
-EXPOSE 3001
+EXPOSE ${PORT:-3001}
 
 CMD ["node", "src/server.js"]

@@ -14,7 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = Number.parseInt(process.env.API_PORT || "3001", 10);
+const PORT = Number.parseInt(process.env.PORT || process.env.API_PORT || "3001", 10);
 
 app.use(cors());
 app.use(express.json());
