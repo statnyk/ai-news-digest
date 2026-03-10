@@ -102,6 +102,71 @@ WATCHTOWER_SCHEDULE=0 0 3 * * *   # каждый день в 03:00 (cron-фор�
 
 ---
 
+## 🚀 Продвинутый вариант — облачный деплой без VPS
+
+> Всё ниже работает само: HTTPS, PostgreSQL, авто-деплой при пуше в `main`.
+> Тебе не нужен сервер, SSH, Caddy или Watchtower.
+
+### Вариант A — Railway (рекомендуется, проще всего)
+
+**Что делает сам:** деплоит Docker образ, поднимает PostgreSQL, выдаёт HTTPS домен, авто-деплой из GitHub.
+
+- [ ] Зайти на [railway.app](https://railway.app) → New Project → Deploy from GitHub repo
+- [ ] Добавить сервис PostgreSQL: + New → Database → PostgreSQL
+- [ ] Добавить переменные окружения в Railway (вкладка Variables):
+  - `OPENAI_API_KEY`
+  - `RSS_FEEDS`
+  - `DATABASE_URL` — Railway подставит автоматически из PostgreSQL сервиса
+- [ ] В настройках сервиса указать образ: `ghcr.io/statnyk/ai-news-digest:latest`
+  *(или Railway сам собирает из Dockerfile при каждом пуше)*
+- [ ] Railway выдаст домен вида `ai-news-digest.up.railway.app` — скопировать его
+- [ ] Добавить GitHub Secret `VITE_API_URL=https://ai-news-digest.up.railway.app`
+- [ ] Готово — GitHub Pages → Railway API → PostgreSQL, всё по HTTPS
+
+**Цена:** ~$5/мес (или бесплатно в рамках trial $5)
+
+---
+
+### Вариант B — Render
+
+**Что делает сам:** то же самое, чуть медленнее холодный старт на free tier.
+
+- [ ] Зайти на [render.com](https://render.com) → New → Web Service → Connect GitHub
+- [ ] Render сам найдёт Dockerfile и начнёт деплоить
+- [ ] Добавить PostgreSQL: New → PostgreSQL → скопировать `DATABASE_URL`
+- [ ] Добавить переменные: `OPENAI_API_KEY`, `RSS_FEEDS`, `DATABASE_URL`
+- [ ] Скопировать выданный домен `*.onrender.com` → GitHub Secret `VITE_API_URL`
+
+**Цена:** бесплатный tier есть (засыпает после 15 мин неактивности), платный ~$7/мес
+
+---
+
+### Вариант C — Fly.io (для тех кто хочет контроль)
+
+- [ ] Установить `flyctl`: `curl -L https://fly.io/install.sh | sh`
+- [ ] `fly launch` в папке проекта — создаст `fly.toml` автоматически
+- [ ] `fly postgres create` — управляемая PostgreSQL
+- [ ] `fly secrets set OPENAI_API_KEY=... RSS_FEEDS=...`
+- [ ] Добавить в `.github/workflows/docker.yml` деплой через `fly deploy`
+- [ ] Скопировать домен `*.fly.dev` → GitHub Secret `VITE_API_URL`
+
+**Цена:** ~$3-5/мес, есть free allowance
+
+---
+
+### Сравнение
+
+| | Railway | Render | Fly.io | Self-hosted VPS |
+|---|---|---|---|---|
+| Настройка | 10 мин | 15 мин | 30 мин | 1-2 часа |
+| Авто-деплой из GitHub | ✅ | ✅ | ✅ (нужен step) | ✅ (нужен step) |
+| Managed PostgreSQL | ✅ | ✅ | ✅ | ❌ |
+| HTTPS автоматом | ✅ | ✅ | ✅ | ✅ (Caddy) |
+| Цена/мес | ~$5 | $0-7 | ~$3-5 | $5-10 (VPS) |
+| Контроль | низкий | низкий | средний | полный |
+
+---
+
 ## Полезные команды
 
 ```bash
