@@ -299,6 +299,10 @@ function TopicManagerModal({
   onAddSource,
   onDeleteTopic,
   onClose,
+  topicSources,
+  loadingSources,
+  onRemoveSource,
+  onUpdateSource,
 }) {
   useEffect(() => {
     function handleKey(e) { if (e.key === "Escape") onClose(); }
@@ -334,6 +338,26 @@ function TopicManagerModal({
           </form>
           {selectedTopic !== "all" && (
             <>
+              <div className="topic-sources-section">
+                <div className="topic-sources-label">RSS feeds in this folder</div>
+                {loadingSources && <div className="topic-sources-loading">Loading…</div>}
+                {!loadingSources && Array.isArray(topicSources) && topicSources.length === 0 && (
+                  <div className="topic-sources-empty">No feeds yet. Add one below.</div>
+                )}
+                {!loadingSources && Array.isArray(topicSources) && topicSources.length > 0 && (
+                  <ul className="topic-sources-list">
+                    {topicSources.map((src) => (
+                      <TopicSourceRow
+                        key={src.id}
+                        source={src}
+                        onRemove={() => onRemoveSource(selectedTopic, src.id)}
+                        onUpdate={onUpdateSource ? (url) => onUpdateSource(selectedTopic, src.id, url) : null}
+                        disabled={topicLoading}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
               <form onSubmit={onAddSource} className="topic-form">
                 <input
                   className="topic-input"
@@ -359,6 +383,64 @@ function TopicManagerModal({
         </div>
       </aside>
     </>
+  );
+}
+
+function TopicSourceRow({ source, onRemove, onUpdate, disabled }) {
+  const [editing, setEditing] = useState(false);
+  const [editUrl, setEditUrl] = useState(source.rss_url);
+
+  useEffect(() => { setEditUrl(source.rss_url); }, [source.rss_url]);
+
+  const displayUrl = source.rss_url.length > 56 ? source.rss_url.slice(0, 53) + "…" : source.rss_url;
+
+  return (
+    <li className="topic-source-row">
+      {editing && onUpdate ? (
+        <div className="topic-source-edit">
+          <input
+            type="url"
+            className="topic-input topic-source-edit-input"
+            value={editUrl}
+            onChange={(e) => setEditUrl(e.target.value)}
+            placeholder="https://…"
+          />
+          <button
+            type="button"
+            className="topic-btn topic-btn-small"
+            onClick={() => { onUpdate(editUrl); setEditing(false); }}
+            disabled={disabled || !editUrl.trim()}
+          >
+            Save
+          </button>
+          <button type="button" className="topic-btn topic-btn-small" onClick={() => { setEditing(false); setEditUrl(source.rss_url); }}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <>
+          <a
+            href={source.rss_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="topic-source-url"
+            title={source.rss_url}
+          >
+            {displayUrl}
+          </a>
+          <div className="topic-source-actions">
+            {onUpdate && (
+              <button type="button" className="topic-source-action-btn" onClick={() => setEditing(true)} disabled={disabled} title="Change URL">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+              </button>
+            )}
+            <button type="button" className="topic-source-action-btn topic-source-remove" onClick={onRemove} disabled={disabled} title="Remove feed">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            </button>
+          </div>
+        </>
+      )}
+    </li>
   );
 }
 
@@ -476,6 +558,8 @@ export default function App() {
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [topicLoading, setTopicLoading] = useState(false);
   const [topicModalOpen, setTopicModalOpen] = useState(false);
+  const [topicSources, setTopicSources] = useState([]);
+  const [loadingSources, setLoadingSources] = useState(false);
   const [topicSuggestionsMap, setTopicSuggestionsMap] = useState({});
   const [topicSuggestionsLoading, setTopicSuggestionsLoading] = useState({});
   const defaultSuggestions = useMemo(() => pickRandom(QUESTION_POOL, 3), []);
@@ -547,6 +631,28 @@ export default function App() {
       });
     return () => { cancelled = true; };
   }, [mode, selectedTopic, topicSuggestionsMap]);
+
+  useEffect(() => {
+    if (!topicModalOpen || selectedTopic === "all") {
+      setTopicSources([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingSources(true);
+    fetch(`${API_BASE}/api/topics/${encodeURIComponent(selectedTopic)}/sources`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to load sources"))))
+      .then((data) => {
+        if (cancelled) return;
+        setTopicSources(Array.isArray(data.sources) ? data.sources : []);
+      })
+      .catch(() => {
+        if (!cancelled) setTopicSources([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSources(false);
+      });
+    return () => { cancelled = true; };
+  }, [topicModalOpen, selectedTopic]);
 
   const digestLoaded = useRef(digestMessages.length > 0);
   useEffect(() => {
@@ -751,7 +857,43 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to add RSS URL.");
       setNewSourceUrl("");
-      setTopicModalOpen(false);
+      setTopicSources((prev) => (data.source ? [...prev, data.source] : prev));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTopicLoading(false);
+    }
+  }
+
+  async function handleRemoveSource(slug, sourceId) {
+    setTopicLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/topics/${encodeURIComponent(slug)}/sources/${sourceId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to remove feed.");
+      setTopicSources((prev) => prev.filter((s) => s.id !== sourceId));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTopicLoading(false);
+    }
+  }
+
+  async function handleUpdateSource(slug, sourceId, rssUrl) {
+    const url = (typeof rssUrl === "string" ? rssUrl : "").trim();
+    if (!url) return;
+    setTopicLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/topics/${encodeURIComponent(slug)}/sources/${sourceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rssUrl: url }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update feed.");
+      if (data.source) {
+        setTopicSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, ...data.source, rss_url: data.source.rss_url ?? data.source.rssUrl ?? s.rss_url } : s)));
+      }
     } catch (err) {
       setError(err.message);
     } finally {

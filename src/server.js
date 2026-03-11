@@ -15,6 +15,8 @@ import {
   createTopic,
   listTopicSources,
   addTopicSource,
+  removeTopicSource,
+  updateTopicSource,
   getTopicSuggestions,
   deleteTopic,
 } from "./services/topics.js";
@@ -138,6 +140,36 @@ app.post("/api/topics/:slug/sources", async (req, res) => {
     if (message) return res.status(503).json({ error: message });
     log("API", `Topic source create error: ${err.message}`);
     res.status(500).json({ error: "Failed to add source." });
+  }
+});
+
+app.delete("/api/topics/:slug/sources/:id", async (req, res) => {
+  try {
+    const sourceId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(sourceId)) return res.status(400).json({ error: "Invalid source id." });
+    const result = await removeTopicSource(req.params.slug, sourceId);
+    if (result.error) return res.status(404).json(result);
+    res.json(result);
+  } catch (err) {
+    const message = topicErrorMessage(err);
+    if (message) return res.status(503).json({ error: message });
+    log("API", `Topic source delete error: ${err.message}`);
+    res.status(500).json({ error: "Failed to remove source." });
+  }
+});
+
+app.patch("/api/topics/:slug/sources/:id", async (req, res) => {
+  try {
+    const sourceId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(sourceId)) return res.status(400).json({ error: "Invalid source id." });
+    const result = await updateTopicSource(req.params.slug, sourceId, req.body || {});
+    if (result.error) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    const message = topicErrorMessage(err);
+    if (message) return res.status(503).json({ error: message });
+    log("API", `Topic source update error: ${err.message}`);
+    res.status(500).json({ error: "Failed to update source." });
   }
 });
 

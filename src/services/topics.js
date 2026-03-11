@@ -148,3 +148,44 @@ export async function addTopicSource(topicSlug, rssUrl) {
 
   return { topic, source: result.rows[0] };
 }
+
+export async function removeTopicSource(topicSlug, sourceId) {
+  const topic = await getTopicBySlug(topicSlug);
+  if (!topic) return { error: "Topic not found." };
+
+  const result = await query(
+    `DELETE FROM topic_sources WHERE topic_id = $1 AND id = $2 RETURNING id`,
+    [topic.id, sourceId]
+  );
+  if (result.rowCount === 0) return { error: "Source not found." };
+  return { deleted: true, sourceId };
+}
+
+export async function updateTopicSource(topicSlug, sourceId, updates) {
+  const topic = await getTopicBySlug(topicSlug);
+  if (!topic) return { error: "Topic not found." };
+
+  if (updates.rssUrl !== undefined) {
+    if (!isSafeRssUrl(updates.rssUrl)) return { error: "Invalid RSS URL. Use http or https." };
+  }
+
+  const result = await query(
+    `SELECT id, rss_url, active FROM topic_sources WHERE topic_id = $1 AND id = $2`,
+    [topic.id, sourceId]
+  );
+  if (result.rowCount === 0) return { error: "Source not found." };
+
+  const rssUrl = updates.rssUrl !== undefined ? updates.rssUrl : result.rows[0].rss_url;
+  const active = updates.active !== undefined ? updates.active : result.rows[0].active;
+
+  await query(
+    `UPDATE topic_sources SET rss_url = $1, active = $2 WHERE topic_id = $3 AND id = $4`,
+    [rssUrl, active, topic.id, sourceId]
+  );
+
+  const updated = await query(
+    `SELECT id, rss_url, active, created_at FROM topic_sources WHERE topic_id = $1 AND id = $2`,
+    [topic.id, sourceId]
+  );
+  return { topic, source: updated.rows[0] };
+}
