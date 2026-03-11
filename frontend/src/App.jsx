@@ -1086,6 +1086,10 @@ export default function App() {
           onAddSource={handleAddSource}
           onDeleteTopic={handleDeleteTopic}
           onClose={() => setTopicModalOpen(false)}
+          topicSources={topicSources}
+          loadingSources={loadingSources}
+          onRemoveSource={handleRemoveSource}
+          onUpdateSource={handleUpdateSource}
         />
       )}
     </>
