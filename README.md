@@ -4,6 +4,24 @@ An end-to-end system that ingests AI/tech news from RSS feeds, persists articles
 
 Built with **Node.js** + **n8n** workflows.
 
+## Live app
+
+- **Production:** [https://ai-news-digest-production.up.railway.app/](https://ai-news-digest-production.up.railway.app/)
+- **User guide:** See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for how the app works and how to use the UI.
+
+### Custom domain (Railway)
+
+To use your own URL (e.g. `news.yourdomain.com`):
+
+1. In [Railway](https://railway.app) open your project → the service → **Settings** → **Networking** → **Public Networking**.
+2. Under **Custom Domains**, click **Add custom domain** and enter your domain (e.g. `news.yourdomain.com`).
+3. Railway will show a target host (e.g. `ai-news-digest-production.up.railway.app`). In your DNS provider, add a **CNAME** record:
+   - **Name:** subdomain you want (e.g. `news` for `news.yourdomain.com`)
+   - **Value / Target:** the Railway host from step 2
+4. Wait for DNS to propagate; Railway will issue an SSL certificate automatically.
+
+For root domains (`yourdomain.com`) your DNS must support CNAME flattening or ALIAS. See [Railway’s Public Networking guide](https://docs.railway.app/guides/public-networking) for details.
+
 ## Architecture
 
 ```
