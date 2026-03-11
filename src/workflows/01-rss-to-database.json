@@ -57,7 +57,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO articles (title, url, source, published_at, category, summary, content)\nVALUES ('{{ $json.title }}', '{{ $json.url }}', '{{ $json.source }}', '{{ $json.published_at }}', '{{ $json.category }}', '{{ $json.summary }}', '{{ $json.content }}')\nON CONFLICT (url) DO NOTHING\nRETURNING id, title;",
+        "query": "INSERT INTO articles (title, url, source, published_at, category, summary, content)\nVALUES (\n  '{{ ($json.title || \"\").replace(/'/g, \"''\") }}',\n  '{{ ($json.url || \"\").replace(/'/g, \"''\") }}',\n  '{{ ($json.source || \"\").replace(/'/g, \"''\") }}',\n  '{{ ($json.published_at || new Date().toISOString()).replace(/'/g, \"''\") }}'::timestamptz,\n  '{{ ($json.category || \"ai\").replace(/'/g, \"''\") }}',\n  {{ $json.summary ? \"'\" + $json.summary.replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n  {{ $json.content ? \"'\" + $json.content.replace(/'/g, \"''\") + \"'\" : \"NULL\" }}\n)\nON CONFLICT (url) DO NOTHING\nRETURNING id, title;",
         "additionalFields": {}
       },
       "id": "postgres-insert",
