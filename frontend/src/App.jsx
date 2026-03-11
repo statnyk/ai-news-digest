@@ -37,9 +37,22 @@ function RefreshIcon() {
 
 function HeaderLogo() {
   return (
-    <svg width="22" height="22" viewBox="0 0 32 32" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M22 3 A7 7 0 0 0 29 10 A7 7 0 0 0 22 17 A7 7 0 0 0 15 10 A7 7 0 0 0 22 3 Z" fill="#b2ff00" />
-      <path d="M3 12L13 12M3 20L21 20M3 28L29 28" stroke="#b2ff00" strokeWidth={4} strokeLinecap="round" fill="none" />
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      style={{ flexShrink: 0 }}
+      aria-label="Header Logo"
+      role="img"
+    >
+      <path
+        d="M12 2L14.5 8.5L21 9.5L16.5 14L17.5 21L12 17.5L6.5 21L7.5 14L3 9.5L9.5 8.5L12 2Z"
+        stroke="#b2ff00"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="1.2" fill="#b2ff00" />
     </svg>
   );
 }
