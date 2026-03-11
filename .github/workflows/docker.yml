@@ -47,38 +47,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  # ── Deploy to VPS via SSH (runs only when SSH secrets are configured) ──────
-  deploy:
-    name: Deploy to VPS
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    # Skip gracefully when SSH secrets are not set
-    if: ${{ secrets.SSH_HOST != '' }}
-    steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          envs: OPENAI_API_KEY,RSS_FEEDS
-          script: |
-            cd ${{ secrets.DEPLOY_PATH || '~/ai-news-digest' }}
-
-            # Write/update secrets from GitHub to .env on server
-            touch .env
-            grep -v "^OPENAI_API_KEY=" .env > .env.tmp && mv .env.tmp .env
-            echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> .env
-            if [ -n "${RSS_FEEDS}" ]; then
-              grep -v "^RSS_FEEDS=" .env > .env.tmp && mv .env.tmp .env
-              echo "RSS_FEEDS=${RSS_FEEDS}" >> .env
-            fi
-
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull app
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
-            docker image prune -f
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          RSS_FEEDS: ${{ secrets.RSS_FEEDS }}

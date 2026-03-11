@@ -546,7 +546,8 @@ export default function App() {
         {!apiOnline && <ApiOfflineBanner />}
 
         <div className="chat-container">
-          <div className="chat-messages">
+          <div className="chat-scroll-view">
+            <div className="chat-messages">
             {!hasMessages && !isAnyLoading && mode === "chat" && (
               <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
             )}
@@ -558,6 +559,7 @@ export default function App() {
             {isAnyLoading && <LoadingMessage text={loadingText} />}
             {error && <ErrorBubble error={error} onRetry={handleRetry} />}
             <div ref={messagesEndRef} />
+            </div>
           </div>
 
           {mode === "chat" && (

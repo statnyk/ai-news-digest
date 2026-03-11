@@ -14,10 +14,29 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  max-width: 780px;
   width: 100%;
-  margin: 0 auto;
   font-family: "Inter", sans-serif;
+}
+
+.chat-scroll-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
+
+.chat-scroll-view::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-scroll-view::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-scroll-view::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
 }
 
 /* ─── Sidebar ────────────────────────────────────────────────── */
@@ -400,28 +419,13 @@
 /* ─── Messages area ──────────────────────────────────────────── */
 
 .chat-messages {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  max-width: 780px;
+  width: 100%;
+  margin: 0 auto;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  scroll-behavior: smooth;
-}
-
-.chat-messages::-webkit-scrollbar {
-  width: 6px;
-}
-
-.chat-messages::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.chat-messages::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 3px;
 }
 
 /* ─── Welcome screen ─────────────────────────────────────────── */
@@ -911,6 +915,9 @@
 /* ─── Input area (floating, rounded) ─────────────────────────── */
 
 .chat-input-area {
+  max-width: 780px;
+  width: 100%;
+  margin: 0 auto;
   padding: 12px 24px 20px;
   background: transparent;
   flex-shrink: 0;
@@ -984,9 +991,6 @@
 /* ─── Responsive: Mobile ─────────────────────────────────────── */
 
 @media (max-width: 809.98px) {
-  .chat-container {
-    max-width: 100%;
-  }
 
   .chat-header-inner {
     padding: 10px 16px;
@@ -1113,7 +1117,11 @@
 /* ─── Responsive: Tablet ─────────────────────────────────────── */
 
 @media (min-width: 810px) and (max-width: 1199.98px) {
-  .chat-container {
+  .chat-messages {
+    max-width: 680px;
+  }
+
+  .chat-input-area {
     max-width: 680px;
   }
 
@@ -1125,16 +1133,13 @@
 /* ─── Responsive: Desktop ────────────────────────────────────── */
 
 @media (min-width: 1200px) {
-  .chat-container {
-    max-width: 780px;
-  }
-
   .chat-header-inner {
     max-width: 780px;
     padding: 16px 28px;
   }
 
   .chat-messages {
+    max-width: 780px;
     padding: 28px;
   }
 
