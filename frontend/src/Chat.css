@@ -356,6 +356,10 @@
   flex-shrink: 0;
 }
 
+.chat-header-logo svg {
+  display: block;
+}
+
 .chat-header-title {
   font-size: 15px;
   font-weight: 600;
