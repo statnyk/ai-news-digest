@@ -12,6 +12,15 @@ import config from "../config/index.js";
 import { query, closePool } from "../utils/db.js";
 import { log } from "../utils/logger.js";
 
+const DIGEST_RANGE_CONFIG = {
+  "5m": { minutes: 5, label: "Last 5 minutes" },
+  "30m": { minutes: 30, label: "Last 30 minutes" },
+  "1h": { hours: 1, label: "Last 1 hour" },
+  "1d": { days: 1, label: "Last 1 day" },
+  "3d": { days: 3, label: "Last 3 days" },
+  "1w": { days: 7, label: "Last 1 week" },
+};
+
 // ─── Date helpers ────────────────────────────────────────────
 function formatDate(date) {
   return new Date(date).toLocaleDateString("en-US", {
@@ -30,12 +39,35 @@ function formatDateShort(date) {
   });
 }
 
+function getRangeWindow(rangeKey) {
+  const normalized = typeof rangeKey === "string" ? rangeKey.trim().toLowerCase() : "1w";
+  const selectedKey = DIGEST_RANGE_CONFIG[normalized] ? normalized : "1w";
+  const configEntry = DIGEST_RANGE_CONFIG[selectedKey];
+  const endDate = new Date();
+  const startDate = new Date(endDate);
+
+  if (configEntry.minutes) {
+    startDate.setMinutes(startDate.getMinutes() - configEntry.minutes);
+  } else if (configEntry.hours) {
+    startDate.setHours(startDate.getHours() - configEntry.hours);
+  } else {
+    startDate.setDate(startDate.getDate() - configEntry.days);
+  }
+
+  return { rangeKey: selectedKey, rangeLabel: configEntry.label, startDate, endDate };
+}
+
 // ─── Markdown generation ─────────────────────────────────────
-function generateMarkdown(articles, startDate, endDate, titleSuffix = "") {
+function generateMarkdown(articles, startDate, endDate, titleSuffix = "", rangeLabel = "") {
   const lines = [];
 
   // Header
-  lines.push(`# 📰 AI News Weekly Digest${titleSuffix ? ` — ${titleSuffix}` : ""}`);
+  const digestTitleParts = [
+    "📰 AI News Weekly Digest",
+    titleSuffix || null,
+    rangeLabel || null,
+  ].filter(Boolean);
+  lines.push(`# ${digestTitleParts.join(" — ")}`);
   lines.push(``);
   lines.push(`**${formatDate(startDate)} — ${formatDate(endDate)}**`);
   lines.push(``);
@@ -106,14 +138,12 @@ async function resolveTopic(topicSlug) {
 export async function runDigest(options = {}) {
   log("DIGEST", "═══ Generating Weekly Digest ═══");
 
-  const days = config.digest.days;
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
+  const range = options.range || "1w";
+  const { rangeKey, rangeLabel, startDate, endDate } = getRangeWindow(range);
   const topicSlug = options.topicSlug || null;
   const topic = await resolveTopic(topicSlug);
 
-  log("DIGEST", `  Date range: ${formatDateShort(startDate)} → ${formatDateShort(endDate)}`);
+  log("DIGEST", `  Date range (${rangeKey}): ${formatDateShort(startDate)} → ${formatDateShort(endDate)}`);
 
   if (topicSlug && !topic) {
     throw new Error("Topic not found.");
@@ -137,21 +167,27 @@ export async function runDigest(options = {}) {
       );
 
   const articles = result.rows;
-  log("DIGEST", `  Found ${articles.length} articles in the last ${days} days.`);
+  log("DIGEST", `  Found ${articles.length} articles in ${rangeLabel.toLowerCase()}.`);
 
   if (articles.length === 0) {
     log("DIGEST", "  No articles found. Generating empty digest.");
   }
 
   // Generate markdown
-  const markdown = generateMarkdown(articles, startDate, endDate, topic?.name || "");
+  const markdown = generateMarkdown(
+    articles,
+    startDate,
+    endDate,
+    topic?.name || "",
+    rangeLabel
+  );
 
   // Write to file
   const outputDir = resolve(config.digest.outputDir);
   mkdirSync(outputDir, { recursive: true });
 
   const dateStr = endDate.toISOString().slice(0, 10);
-  const digestPrefix = topic ? `weekly-digest-${topic.slug}` : "weekly-digest";
+  const digestPrefix = topic ? `weekly-digest-${topic.slug}-${rangeKey}` : `weekly-digest-${rangeKey}`;
   const outputPath = resolve(outputDir, `${digestPrefix}-${dateStr}.md`);
   writeFileSync(outputPath, markdown, "utf-8");
 

@@ -12,6 +12,37 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+
+      - name: Run DB migrations on Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT: ${{ vars.RAILWAY_ENVIRONMENT }}
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "RAILWAY_TOKEN is not configured. Skipping remote migration."
+            exit 0
+          fi
+
+          PROJECT_ARG=""
+          ENV_ARG=""
+          SERVICE_ARG=""
+
+          if [ -n "$RAILWAY_PROJECT_ID" ]; then
+            PROJECT_ARG="--project $RAILWAY_PROJECT_ID"
+          fi
+          if [ -n "$RAILWAY_ENVIRONMENT" ]; then
+            ENV_ARG="--environment $RAILWAY_ENVIRONMENT"
+          fi
+          if [ -n "$RAILWAY_SERVICE" ]; then
+            SERVICE_ARG="--service $RAILWAY_SERVICE"
+          fi
+
+          railway ssh $PROJECT_ARG $ENV_ARG $SERVICE_ARG "npm run migrate"
+
       - name: Trigger pipeline on Railway
         env:
           APP_URL: ${{ vars.RAILWAY_APP_URL }}

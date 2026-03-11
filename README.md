@@ -70,7 +70,21 @@ npm run setup
 # Creates database tables + Qdrant collection
 ```
 
-### 5. Run the Pipeline
+For **topic folders** (custom RSS per folder), run all migrations:
+
+```bash
+npm run migrate
+```
+
+### 5. Local development (API + UI)
+
+```bash
+npm run dev
+```
+
+In development (`NODE_ENV` not set to `production`), the API runs migrations on startup so topic tables exist and "Create topic" works locally. To skip auto-migrate (e.g. you run migrate yourself), set `SKIP_DEV_MIGRATE=true`.
+
+### 6. Run the Pipeline
 
 ```bash
 # Step 1: Ingest articles from RSS feeds

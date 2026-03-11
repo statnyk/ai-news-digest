@@ -3,6 +3,14 @@ import ReactMarkdown from "react-markdown";
 import "./Chat.css";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
+const DIGEST_RANGES = [
+  { value: "5m", label: "Last 5 minutes" },
+  { value: "30m", label: "Last 30 minutes" },
+  { value: "1h", label: "Last 1 hour" },
+  { value: "1d", label: "Last 1 day" },
+  { value: "3d", label: "Last 3 days" },
+  { value: "1w", label: "Last 1 week" },
+];
 
 const QUESTION_POOL = [
   "What are the latest AI news?",
@@ -236,15 +244,30 @@ function ErrorBubble({ error, onRetry }) {
   );
 }
 
-function WelcomeScreen({ onSuggestionClick }) {
-  const suggestions = useMemo(() => pickRandom(QUESTION_POOL, 3), []);
+function WelcomeScreen({
+  selectedTopic,
+  topic,
+  suggestions,
+  loadingSuggestions,
+  onSuggestionClick,
+}) {
+  const isAll = selectedTopic === "all" || !topic;
+  const title = isAll ? "AI News Chat" : (topic?.welcome_title || (topic?.name ? `${topic.name} Digest` : "Chat"));
+  const description = isAll
+    ? "Ask questions about recent AI and technology news. Answers are grounded in indexed articles with source citations."
+    : (topic?.welcome_description || `Ask questions about ${topic?.name || "this topic"}. Answers are grounded in your indexed articles.`);
+  const showSuggestions = Array.isArray(suggestions) && suggestions.length > 0;
+
   return (
     <div className="chat-welcome">
       <div className="chat-welcome-icon"><AppLogo mode="chat" /></div>
-      <h2>AI News Chat</h2>
-      <p>Ask questions about recent AI and technology news. Answers are grounded in indexed articles with source citations.</p>
+      <h2>{title}</h2>
+      <p>{description}</p>
       <div className="chat-suggestions">
-        {suggestions.map((s) => (
+        {loadingSuggestions && (
+          <span className="chat-suggestions-loading">Loading suggestions…</span>
+        )}
+        {!loadingSuggestions && showSuggestions && suggestions.map((s) => (
           <button key={s} className="chat-suggestion-btn" onClick={() => onSuggestionClick(s)}>{s}</button>
         ))}
       </div>
@@ -265,9 +288,95 @@ function ApiOfflineBanner() {
   );
 }
 
+function TopicManagerModal({
+  selectedTopic,
+  topicLoading,
+  newTopicName,
+  newSourceUrl,
+  onNewTopicNameChange,
+  onNewSourceUrlChange,
+  onCreateTopic,
+  onAddSource,
+  onDeleteTopic,
+  onClose,
+}) {
+  useEffect(() => {
+    function handleKey(e) { if (e.key === "Escape") onClose(); }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return (
+    <>
+      <div className="topic-modal-overlay" onClick={onClose} />
+      <aside className="topic-modal">
+        <div className="topic-modal-header">
+          <h3>Manage Topics</h3>
+          <button className="topic-modal-close" onClick={onClose} title="Close">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div className="topic-modal-body">
+          <form onSubmit={onCreateTopic} className="topic-form">
+            <input
+              className="topic-input"
+              value={newTopicName}
+              onChange={(e) => onNewTopicNameChange(e.target.value)}
+              placeholder="New folder (e.g. Crypto)"
+              disabled={topicLoading}
+            />
+            <button className="topic-btn" type="submit" disabled={topicLoading || !newTopicName.trim()}>
+              Add Folder
+            </button>
+          </form>
+          {selectedTopic !== "all" && (
+            <>
+              <form onSubmit={onAddSource} className="topic-form">
+                <input
+                  className="topic-input"
+                  value={newSourceUrl}
+                  onChange={(e) => onNewSourceUrlChange(e.target.value)}
+                  placeholder="Add RSS URL to this folder"
+                  disabled={topicLoading}
+                />
+                <button className="topic-btn" type="submit" disabled={topicLoading || !newSourceUrl.trim()}>
+                  Add RSS
+                </button>
+              </form>
+              <button
+                type="button"
+                className="topic-delete-btn"
+                onClick={() => onDeleteTopic(selectedTopic)}
+                disabled={topicLoading}
+              >
+                Delete this folder
+              </button>
+            </>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
+
 /* ─── Sidebar ────────────────────────────────────────────────── */
 
-function ChatSidebar({ conversations, activeId, onSelect, onNew, onDelete, isOpen, onClose }) {
+function ChatSidebar({
+  conversations,
+  activeId,
+  onSelect,
+  onNew,
+  onDelete,
+  isOpen,
+  onClose,
+  topics,
+  selectedTopic,
+  onTopicSelect,
+  onManageTopics,
+}) {
   return (
     <>
       {isOpen && <div className="sidebar-overlay" onClick={onClose} />}
@@ -282,6 +391,25 @@ function ChatSidebar({ conversations, activeId, onSelect, onNew, onDelete, isOpe
           </button>
         </div>
         <div className="sidebar-list">
+          <div className="sidebar-topic-section">
+            <div className="sidebar-topic-header">
+              <span className="sidebar-topic-title">Folders</span>
+              <button className="sidebar-topic-manage-btn" onClick={onManageTopics}>
+                Manage
+              </button>
+            </div>
+            <div className="sidebar-topic-list">
+              {topics.map((topic) => (
+                <button
+                  key={topic.slug}
+                  className={`sidebar-topic-chip ${selectedTopic === topic.slug ? "sidebar-topic-chip-active" : ""}`}
+                  onClick={() => { onTopicSelect(topic.slug); onClose(); }}
+                >
+                  {topic.name}
+                </button>
+              ))}
+            </div>
+          </div>
           {conversations.length === 0 && (
             <div className="sidebar-empty">No conversations yet</div>
           )}
@@ -347,6 +475,11 @@ export default function App() {
   const [newTopicName, setNewTopicName] = useState("");
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [topicLoading, setTopicLoading] = useState(false);
+  const [topicModalOpen, setTopicModalOpen] = useState(false);
+  const [topicSuggestionsMap, setTopicSuggestionsMap] = useState({});
+  const [topicSuggestionsLoading, setTopicSuggestionsLoading] = useState({});
+  const defaultSuggestions = useMemo(() => pickRandom(QUESTION_POOL, 3), []);
+  const [digestRange, setDigestRange] = useState(() => loadFromStorage("and:digestRange", "1w"));
 
   const filteredConversations = useMemo(
     () => conversations.filter((c) => normalizeTopicSlug(c.topicSlug) === selectedTopic),
@@ -361,6 +494,7 @@ export default function App() {
   useEffect(() => { saveToStorage("and:digest", digestMessages); }, [digestMessages]);
   useEffect(() => { saveToStorage("and:mode", mode); }, [mode]);
   useEffect(() => { saveToStorage("and:selectedTopic", selectedTopic); }, [selectedTopic]);
+  useEffect(() => { saveToStorage("and:digestRange", digestRange); }, [digestRange]);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -390,19 +524,47 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (mode !== "chat" || selectedTopic === "all") return;
+    if (topicSuggestionsMap[selectedTopic]) return;
+    let cancelled = false;
+    setTopicSuggestionsLoading((prev) => ({ ...prev, [selectedTopic]: true }));
+    fetch(`${API_BASE}/api/topics/${encodeURIComponent(selectedTopic)}/suggestions`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to load suggestions"))))
+      .then((data) => {
+        if (cancelled) return;
+        setTopicSuggestionsMap((prev) => ({ ...prev, [selectedTopic]: data.suggestions || [] }));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTopicSuggestionsMap((prev) => ({ ...prev, [selectedTopic]: [] }));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setTopicSuggestionsLoading((prev) => ({ ...prev, [selectedTopic]: false }));
+        }
+      });
+    return () => { cancelled = true; };
+  }, [mode, selectedTopic, topicSuggestionsMap]);
+
   const digestLoaded = useRef(digestMessages.length > 0);
   useEffect(() => {
     if (mode !== "digest" || digestLoaded.current || loading) return;
     digestLoaded.current = true;
     setLoading(true);
     setError(null);
-    const topicQuery = selectedTopic !== "all" ? `?topic=${encodeURIComponent(selectedTopic)}` : "";
-    fetch(`${API_BASE}/api/digest${topicQuery}`)
+    const params = new URLSearchParams();
+    params.set("range", digestRange);
+    if (selectedTopic !== "all") {
+      params.set("topic", selectedTopic);
+    }
+    fetch(`${API_BASE}/api/digest?${params.toString()}`)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error(`Server error (${r.status})`)))
       .then((data) => { if (data.markdown) setDigestMessages([{ role: "assistant", content: data.markdown, sources: [] }]); })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [mode, loading, digestMessages.length, selectedTopic]);
+  }, [mode, loading, digestMessages.length, selectedTopic, digestRange]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -478,6 +640,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(selectedTopic !== "all" && { topicSlug: selectedTopic }),
+          range: digestRange,
         }),
       });
       if (!res.ok) {
@@ -529,6 +692,14 @@ export default function App() {
     setLastFailedInput(null);
   }
 
+  function handleTopicSelect(slug) {
+    setSelectedTopic(slug);
+    setActiveId(null);
+    setError(null);
+    digestLoaded.current = false;
+    setDigestMessages([]);
+  }
+
   function handleNewChat() {
     setActiveId(null);
     setError(null);
@@ -547,15 +718,15 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      if (!res.ok) throw new Error("Failed to create topic.");
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to create topic.");
       const created = data.topic;
       if (created) {
         setTopics((prev) => {
           const withoutDupes = prev.filter((t) => t.slug !== created.slug);
           return [withoutDupes[0], created, ...withoutDupes.slice(1)];
         });
-        setSelectedTopic(created.slug);
+        handleTopicSelect(created.slug);
         setNewTopicName("");
       }
     } catch (err) {
@@ -580,6 +751,33 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to add RSS URL.");
       setNewSourceUrl("");
+      setTopicModalOpen(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTopicLoading(false);
+    }
+  }
+
+  async function handleDeleteTopic(slug) {
+    if (slug === "all") return;
+    setTopicLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/topics/${encodeURIComponent(slug)}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to delete folder.");
+      setTopics((prev) => prev.filter((t) => t.slug !== slug));
+      setConversations((prev) => prev.map((c) => (c.topicSlug === slug ? { ...c, topicSlug: "all" } : c)));
+      setTopicSuggestionsMap((prev) => {
+        const next = { ...prev };
+        delete next[slug];
+        return next;
+      });
+      if (selectedTopic === slug) {
+        setSelectedTopic("all");
+        setActiveId(null);
+      }
+      setTopicModalOpen(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -613,6 +811,10 @@ export default function App() {
           onDelete={handleDeleteConvo}
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+          topics={topics}
+          selectedTopic={selectedTopic}
+          onTopicSelect={handleTopicSelect}
+          onManageTopics={() => setTopicModalOpen(true)}
         />
       )}
 
@@ -640,24 +842,6 @@ export default function App() {
               </div>
             </div>
             <div className="chat-header-right">
-              <select
-                className="topic-select"
-                value={selectedTopic}
-                onChange={(e) => {
-                  setSelectedTopic(e.target.value);
-                  setActiveId(null);
-                  setError(null);
-                  digestLoaded.current = false;
-                  setDigestMessages([]);
-                }}
-                disabled={isAnyLoading}
-              >
-                {topics.map((t) => (
-                  <option key={t.slug} value={t.slug}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
               {mode === "chat" && (
                 <button className="clear-btn" onClick={handleNewChat} disabled={isAnyLoading || !activeId} title="New chat">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -667,10 +851,28 @@ export default function App() {
                 </button>
               )}
               {mode === "digest" && (
-                <button className="refresh-btn" onClick={runPipeline} disabled={isAnyLoading} title="Re-ingest RSS feeds, re-index vectors, and regenerate digest">
-                  <RefreshIcon />
-                  <span>Refresh Data</span>
-                </button>
+                <>
+                  <select
+                    className="digest-range-select"
+                    value={digestRange}
+                    onChange={(e) => {
+                      setDigestRange(e.target.value);
+                      digestLoaded.current = false;
+                      setDigestMessages([]);
+                    }}
+                    disabled={isAnyLoading}
+                  >
+                    {DIGEST_RANGES.map((rangeOption) => (
+                      <option key={rangeOption.value} value={rangeOption.value}>
+                        {rangeOption.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="refresh-btn" onClick={runPipeline} disabled={isAnyLoading} title="Re-ingest RSS feeds, re-index vectors, and regenerate digest">
+                    <RefreshIcon />
+                    <span>Refresh Data</span>
+                  </button>
+                </>
               )}
               <div className="mode-switcher">
                 <button className={`mode-btn ${mode === "chat" ? "active" : ""}`} onClick={() => handleModeSwitch("chat")}>Chat</button>
@@ -683,38 +885,16 @@ export default function App() {
         {!apiOnline && <ApiOfflineBanner />}
 
         <div className="chat-container">
-          <div className="topic-actions">
-            <form onSubmit={handleCreateTopic} className="topic-form">
-              <input
-                className="topic-input"
-                value={newTopicName}
-                onChange={(e) => setNewTopicName(e.target.value)}
-                placeholder="New folder (e.g. Crypto)"
-                disabled={topicLoading}
-              />
-              <button className="topic-btn" type="submit" disabled={topicLoading || !newTopicName.trim()}>
-                Add Folder
-              </button>
-            </form>
-            {selectedTopic !== "all" && (
-              <form onSubmit={handleAddSource} className="topic-form">
-                <input
-                  className="topic-input"
-                  value={newSourceUrl}
-                  onChange={(e) => setNewSourceUrl(e.target.value)}
-                  placeholder="Add RSS URL to this folder"
-                  disabled={topicLoading}
-                />
-                <button className="topic-btn" type="submit" disabled={topicLoading || !newSourceUrl.trim()}>
-                  Add RSS
-                </button>
-              </form>
-            )}
-          </div>
           <div className="chat-scroll-view">
             <div className="chat-messages">
             {!hasMessages && !isAnyLoading && mode === "chat" && (
-              <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
+              <WelcomeScreen
+                selectedTopic={selectedTopic}
+                topic={topics.find((t) => t.slug === selectedTopic)}
+                suggestions={selectedTopic === "all" ? defaultSuggestions : (topicSuggestionsMap[selectedTopic] || [])}
+                loadingSuggestions={selectedTopic !== "all" && !!topicSuggestionsLoading[selectedTopic]}
+                onSuggestionClick={handleSuggestionClick}
+              />
             )}
 
             {messages.map((msg, i) => (
@@ -751,6 +931,20 @@ export default function App() {
 
       {drawerSources && (
         <SourcesDrawer sources={drawerSources} onClose={() => setDrawerSources(null)} />
+      )}
+      {topicModalOpen && (
+        <TopicManagerModal
+          selectedTopic={selectedTopic}
+          topicLoading={topicLoading}
+          newTopicName={newTopicName}
+          newSourceUrl={newSourceUrl}
+          onNewTopicNameChange={setNewTopicName}
+          onNewSourceUrlChange={setNewSourceUrl}
+          onCreateTopic={handleCreateTopic}
+          onAddSource={handleAddSource}
+          onDeleteTopic={handleDeleteTopic}
+          onClose={() => setTopicModalOpen(false)}
+        />
       )}
     </>
   );
