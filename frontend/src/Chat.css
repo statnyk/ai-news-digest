@@ -182,7 +182,7 @@
   display: none;
 }
 
-@media (max-width: 809.98px) {
+@media (max-width: 1039.98px) {
   .sidebar-overlay {
     display: block;
     position: fixed;
@@ -213,18 +213,14 @@
   color: var(--color-near-black);
 }
 
-/* Desktop: sidebar always visible, hide toggle, offset main content */
-@media (min-width: 810px) {
+/* Desktop (wide): sidebar visible as overlay; main content stays viewport-centered */
+@media (min-width: 1040px) {
   .sidebar-toggle { display: none; }
   .sidebar-overlay { display: none !important; }
-
-  .app-main-with-sidebar {
-    margin-left: 260px;
-  }
 }
 
-/* Mobile: sidebar is off-screen, toggle visible */
-@media (max-width: 809.98px) {
+/* Narrow viewport: sidebar off-screen by default so main content is never covered; toggle to open */
+@media (max-width: 1039.98px) {
   .sidebar {
     position: fixed;
     top: 0;
