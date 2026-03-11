@@ -81,24 +81,27 @@ async function hybridSearch(questionVector, questionText) {
   // 2. If vector results are sparse, supplement with keyword search
   if (vectorResults.length < 3) {
     log("RAG", "  ℹ Low vector results, supplementing with keyword search...");
+    // Prefer longest (most specific) terms so e.g. "youtube" is used, not just "what"/"tell"/"about"
     const keywords = questionText
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, "")
       .split(/\s+/)
-      .filter((w) => w.length > 3)
-      .slice(0, 3);
+      .filter((w) => w.length > 2)
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 5);
 
     if (keywords.length > 0) {
       const keywordQuery = keywords.map((k) => `%${k}%`);
-      const conditions = keywordQuery.map((_, i) => `(title ILIKE $${i + 1} OR content ILIKE $${i + 1})`);
+      const conditions = keywordQuery.map((_, i) => `(title ILIKE $${i + 1} OR content ILIKE $${i + 1} OR summary ILIKE $${i + 1})`);
 
       try {
+        // Prefer articles matching the first (most specific) keyword, then by date
         const result = await query(
           `SELECT id, title, url, source, category, published_at, summary, content
            FROM articles
            WHERE ${conditions.join(" OR ")}
-           ORDER BY published_at DESC
-           LIMIT 5`,
+           ORDER BY (title ILIKE $1 OR content ILIKE $1 OR summary ILIKE $1) DESC, published_at DESC
+           LIMIT 8`,
           keywordQuery
         );
 
