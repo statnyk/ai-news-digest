@@ -192,22 +192,17 @@ function ErrorBubble({ error, onRetry }) {
   );
 }
 
-function WelcomeScreen({ mode, onSuggestionClick }) {
-  const suggestions = useMemo(
-    () => (mode === "chat" ? pickRandom(QUESTION_POOL, 3) : ["Generate weekly digest"]),
-    [mode],
-  );
+function WelcomeScreen({ onSuggestionClick }) {
+  const suggestions = useMemo(() => pickRandom(QUESTION_POOL, 3), []);
 
   return (
     <div className="chat-welcome">
       <div className="chat-welcome-icon">
-        <AppLogo mode={mode} />
+        <AppLogo mode="chat" />
       </div>
-      <h2>{mode === "chat" ? "AI News Chat" : "Weekly Digest"}</h2>
+      <h2>AI News Chat</h2>
       <p>
-        {mode === "chat"
-          ? "Ask questions about recent AI and technology news. Answers are grounded in indexed articles with source citations."
-          : "Generate a curated markdown digest of the week's top AI and tech articles."}
+        Ask questions about recent AI and technology news. Answers are grounded in indexed articles with source citations.
       </p>
       <div className="chat-suggestions">
         {suggestions.map((s) => (
@@ -269,6 +264,24 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  const digestLoaded = useRef(digestMessages.length > 0);
+  useEffect(() => {
+    if (mode !== "digest" || digestLoaded.current || loading) return;
+    digestLoaded.current = true;
+
+    setLoading(true);
+    setError(null);
+    fetch(`${API_BASE}/api/digest`)
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`Server error (${r.status})`)))
+      .then((data) => {
+        if (data.markdown) {
+          setDigestMessages([{ role: "assistant", content: data.markdown, sources: [] }]);
+        }
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [mode, loading, digestMessages.length]);
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -316,44 +329,10 @@ export default function App() {
     }
   }
 
-  async function fetchDigest() {
-    setError(null);
-    setLastFailedInput(null);
-
-    const userMessage = { role: "user", content: "Generate weekly digest" };
-    setDigestMessages((prev) => [...prev, userMessage]);
-    setLoading(true);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/digest`);
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Server error (${res.status})`);
-      }
-
-      const data = await res.json();
-      const assistantMessage = {
-        role: "assistant",
-        content: data.markdown || "No digest available.",
-        sources: [],
-      };
-      setDigestMessages((prev) => [...prev, assistantMessage]);
-    } catch (err) {
-      setError(err.message || "Failed to fetch digest.");
-      setLastFailedInput("__digest__");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function runPipeline() {
     if (pipelineLoading || loading) return;
     setError(null);
     setPipelineLoading(true);
-
-    const userMessage = { role: "user", content: "Refresh data: re-ingest RSS, re-index vectors, regenerate digest" };
-    setDigestMessages((prev) => [...prev, userMessage]);
 
     try {
       const res = await fetch(`${API_BASE}/api/pipeline`, { method: "POST" });
@@ -364,16 +343,9 @@ export default function App() {
       }
 
       const data = await res.json();
-      const summary = [
-        `Pipeline completed successfully.`,
-        `- Articles ingested: ${data.ingested ?? "N/A"}`,
-        `- Chunks indexed: ${data.indexed ?? "N/A"}`,
-        `- Digest articles: ${data.digest?.articleCount ?? "N/A"}`,
-        "",
-        data.digest?.markdown || "",
-      ].join("\n");
-
-      setDigestMessages((prev) => [...prev, { role: "assistant", content: summary, sources: [] }]);
+      if (data.digest?.markdown) {
+        setDigestMessages([{ role: "assistant", content: data.digest.markdown, sources: [] }]);
+      }
     } catch (err) {
       setError(err.message || "Pipeline failed.");
     } finally {
@@ -383,34 +355,23 @@ export default function App() {
 
   function handleSubmit(e) {
     e?.preventDefault();
+    if (mode !== "chat") return;
     const trimmed = input.trim();
     if (!trimmed || loading || pipelineLoading) return;
 
     setInput("");
-    if (mode === "chat") {
-      sendChatMessage(trimmed);
-    } else {
-      fetchDigest();
-    }
+    sendChatMessage(trimmed);
   }
 
   function handleSuggestionClick(suggestion) {
     if (loading || pipelineLoading) return;
-    if (mode === "digest" || suggestion === "Generate weekly digest") {
-      fetchDigest();
-    } else {
-      sendChatMessage(suggestion);
-    }
+    sendChatMessage(suggestion);
   }
 
   function handleRetry() {
     if (!lastFailedInput) return;
     setError(null);
-    if (lastFailedInput === "__digest__") {
-      fetchDigest();
-    } else {
-      sendChatMessage(lastFailedInput);
-    }
+    sendChatMessage(lastFailedInput);
   }
 
   function handleKeyDown(e) {
@@ -428,8 +389,12 @@ export default function App() {
   }
 
   function clearHistory() {
-    if (mode === "chat") setChatMessages([]);
-    else setDigestMessages([]);
+    if (mode === "chat") {
+      setChatMessages([]);
+    } else {
+      setDigestMessages([]);
+      digestLoaded.current = false;
+    }
     setError(null);
     setLastFailedInput(null);
   }
@@ -503,8 +468,8 @@ export default function App() {
 
       <div className="chat-container">
         <div className="chat-messages">
-          {!hasMessages && !isAnyLoading && (
-            <WelcomeScreen mode={mode} onSuggestionClick={handleSuggestionClick} />
+          {!hasMessages && !isAnyLoading && mode === "chat" && (
+            <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
           )}
 
           {messages.map((msg, i) => (
@@ -518,23 +483,25 @@ export default function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="chat-input-area">
-          <form onSubmit={handleSubmit} className="chat-input-wrapper">
-            <textarea
-              ref={inputRef}
-              className="chat-input"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={mode === "chat" ? "Ask about AI news..." : "Press send to generate digest..."}
-              rows={1}
-              disabled={isAnyLoading}
-            />
-            <button type="submit" className="chat-send-btn" disabled={isAnyLoading || (!input.trim() && mode === "chat")}>
-              <SendIcon />
-            </button>
-          </form>
-        </div>
+        {mode === "chat" && (
+          <div className="chat-input-area">
+            <form onSubmit={handleSubmit} className="chat-input-wrapper">
+              <textarea
+                ref={inputRef}
+                className="chat-input"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask about AI news..."
+                rows={1}
+                disabled={isAnyLoading}
+              />
+              <button type="submit" className="chat-send-btn" disabled={isAnyLoading || !input.trim()}>
+                <SendIcon />
+              </button>
+            </form>
+          </div>
+        )}
       </div>
 
       {drawerSources && (
