@@ -197,7 +197,7 @@ function SourcesDrawer({ sources, onClose }) {
   );
 }
 
-function MarkdownLink({ node, children, ...props }) {
+function MarkdownLink({ children, ...props }) {
   return (
     <a {...props} target="_blank" rel="noopener noreferrer">
       {children}
