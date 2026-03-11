@@ -24,6 +24,33 @@ function pickRandom(arr, n) {
   return shuffled.slice(0, n);
 }
 
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function loadFromStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+}
+
+function saveToStorage(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function migrateOldChat() {
+  const old = loadFromStorage("and:chat", null);
+  if (!old || !Array.isArray(old) || old.length === 0) return [];
+  localStorage.removeItem("and:chat");
+  const id = genId();
+  const firstUserMsg = old.find((m) => m.role === "user");
+  const title = firstUserMsg ? (firstUserMsg.content.length > 50 ? firstUserMsg.content.slice(0, 47) + "..." : firstUserMsg.content) : "Previous chat";
+  return [{ id, title, messages: old, createdAt: Date.now() }];
+}
+
+/* ─── Small icon components ──────────────────────────────────── */
+
 function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -42,29 +69,6 @@ function RefreshIcon() {
   );
 }
 
-function AppLogo({ mode }) {
-  if (mode === "digest") {
-    return (
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-        <rect x="3" y="3" width="18" height="18" rx="3" stroke="#b2ff00" strokeWidth="1.5" />
-        <line x1="7" y1="8" x2="17" y2="8" stroke="#b2ff00" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="7" y1="12" x2="14" y2="12" stroke="#b2ff00" strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
-        <line x1="7" y1="16" x2="11" y2="16" stroke="#b2ff00" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
-        <circle cx="17.5" cy="15.5" r="2.5" fill="#b2ff00" opacity="0.3" />
-        <path d="M16.5 15.5l1 1 2-2" stroke="#b2ff00" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <path d="M12 2L14.5 8.5L21 9.5L16.5 14L17.5 21L12 17.5L6.5 21L7.5 14L3 9.5L9.5 8.5L12 2Z" stroke="#b2ff00" strokeWidth="1.5" strokeLinejoin="round" />
-      <circle cx="12" cy="12" r="3" fill="#b2ff00" opacity="0.25" />
-      <circle cx="12" cy="12" r="1.2" fill="#b2ff00" />
-    </svg>
-  );
-}
-
 function HeaderLogo() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
@@ -74,6 +78,28 @@ function HeaderLogo() {
     </svg>
   );
 }
+
+function AppLogo({ mode }) {
+  if (mode === "digest") {
+    return (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="3" width="18" height="18" rx="3" stroke="#b2ff00" strokeWidth="1.5" />
+        <line x1="7" y1="8" x2="17" y2="8" stroke="#b2ff00" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="7" y1="12" x2="14" y2="12" stroke="#b2ff00" strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
+        <line x1="7" y1="16" x2="11" y2="16" stroke="#b2ff00" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L14.5 8.5L21 9.5L16.5 14L17.5 21L12 17.5L6.5 21L7.5 14L3 9.5L9.5 8.5L12 2Z" stroke="#b2ff00" strokeWidth="1.5" strokeLinejoin="round" />
+      <circle cx="12" cy="12" r="3" fill="#b2ff00" opacity="0.25" />
+      <circle cx="12" cy="12" r="1.2" fill="#b2ff00" />
+    </svg>
+  );
+}
+
+/* ─── Sub-components ─────────────────────────────────────────── */
 
 function LoadingMessage({ text }) {
   return (
@@ -94,9 +120,8 @@ function LoadingMessage({ text }) {
 function deduplicateSources(sources) {
   const seen = new Set();
   return sources.filter((s) => {
-    const key = s.url;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    if (seen.has(s.url)) return false;
+    seen.add(s.url);
     return true;
   });
 }
@@ -115,9 +140,7 @@ function SourcesButton({ count, onClick }) {
 
 function SourcesDrawer({ sources, onClose }) {
   useEffect(() => {
-    function handleKey(e) {
-      if (e.key === "Escape") onClose();
-    }
+    function handleKey(e) { if (e.key === "Escape") onClose(); }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
@@ -166,11 +189,7 @@ function MessageBubble({ message, onOpenSources }) {
     <div className={`chat-message ${isUser ? "chat-message-user" : "chat-message-assistant"}`}>
       <div className="chat-message-label">{isUser ? "you" : "assistant"}</div>
       <div className="chat-message-bubble">
-        {isUser ? (
-          message.content
-        ) : (
-          <ReactMarkdown>{message.content}</ReactMarkdown>
-        )}
+        {isUser ? message.content : <ReactMarkdown>{message.content}</ReactMarkdown>}
       </div>
       {uniqueSources.length > 0 && (
         <SourcesButton count={uniqueSources.length} onClick={() => onOpenSources(uniqueSources)} />
@@ -183,32 +202,21 @@ function ErrorBubble({ error, onRetry }) {
   return (
     <div className="chat-error">
       <span className="chat-error-text">{error}</span>
-      {onRetry && (
-        <button className="chat-retry-button" onClick={onRetry}>
-          Retry
-        </button>
-      )}
+      {onRetry && <button className="chat-retry-button" onClick={onRetry}>Retry</button>}
     </div>
   );
 }
 
 function WelcomeScreen({ onSuggestionClick }) {
   const suggestions = useMemo(() => pickRandom(QUESTION_POOL, 3), []);
-
   return (
     <div className="chat-welcome">
-      <div className="chat-welcome-icon">
-        <AppLogo mode="chat" />
-      </div>
+      <div className="chat-welcome-icon"><AppLogo mode="chat" /></div>
       <h2>AI News Chat</h2>
-      <p>
-        Ask questions about recent AI and technology news. Answers are grounded in indexed articles with source citations.
-      </p>
+      <p>Ask questions about recent AI and technology news. Answers are grounded in indexed articles with source citations.</p>
       <div className="chat-suggestions">
         {suggestions.map((s) => (
-          <button key={s} className="chat-suggestion-btn" onClick={() => onSuggestionClick(s)}>
-            {s}
-          </button>
+          <button key={s} className="chat-suggestion-btn" onClick={() => onSuggestionClick(s)}>{s}</button>
         ))}
       </div>
     </div>
@@ -228,16 +236,72 @@ function ApiOfflineBanner() {
   );
 }
 
-function loadFromStorage(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch { return fallback; }
+/* ─── Sidebar ────────────────────────────────────────────────── */
+
+function ChatSidebar({ conversations, activeId, onSelect, onNew, onDelete, isOpen, onClose }) {
+  return (
+    <>
+      {isOpen && <div className="sidebar-overlay" onClick={onClose} />}
+      <aside className={`sidebar ${isOpen ? "sidebar-open" : ""}`}>
+        <div className="sidebar-header">
+          <span className="sidebar-title">Conversations</span>
+          <button className="sidebar-new-btn" onClick={onNew} title="New chat">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+        </div>
+        <div className="sidebar-list">
+          {conversations.length === 0 && (
+            <div className="sidebar-empty">No conversations yet</div>
+          )}
+          {conversations.map((c) => (
+            <div
+              key={c.id}
+              className={`sidebar-item ${c.id === activeId ? "sidebar-item-active" : ""}`}
+              onClick={() => { onSelect(c.id); onClose(); }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && onSelect(c.id)}
+            >
+              <div className="sidebar-item-content">
+                <div className="sidebar-item-title">{c.title}</div>
+                <div className="sidebar-item-date">{new Date(c.createdAt).toLocaleDateString()}</div>
+              </div>
+              <button
+                className="sidebar-item-delete"
+                onClick={(e) => { e.stopPropagation(); onDelete(c.id); }}
+                title="Delete conversation"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      </aside>
+    </>
+  );
 }
+
+/* ─── Main App ───────────────────────────────────────────────── */
 
 export default function App() {
   const [mode, setMode] = useState(() => loadFromStorage("and:mode", "chat"));
-  const [chatMessages, setChatMessages] = useState(() => loadFromStorage("and:chat", []));
+  const [conversations, setConversations] = useState(() => {
+    const saved = loadFromStorage("and:convos", null);
+    if (saved && saved.length > 0) return saved;
+    return migrateOldChat();
+  });
+  const [activeId, setActiveId] = useState(() => {
+    const saved = loadFromStorage("and:activeId", null);
+    if (saved) return saved;
+    if (conversations.length > 0) return conversations[0].id;
+    return null;
+  });
   const [digestMessages, setDigestMessages] = useState(() => loadFromStorage("and:digest", []));
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -246,12 +310,16 @@ export default function App() {
   const [lastFailedInput, setLastFailedInput] = useState(null);
   const [drawerSources, setDrawerSources] = useState(null);
   const [apiOnline, setApiOnline] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  useEffect(() => { localStorage.setItem("and:chat", JSON.stringify(chatMessages)); }, [chatMessages]);
-  useEffect(() => { localStorage.setItem("and:digest", JSON.stringify(digestMessages)); }, [digestMessages]);
-  useEffect(() => { localStorage.setItem("and:mode", JSON.stringify(mode)); }, [mode]);
-
+  const activeConvo = conversations.find((c) => c.id === activeId) || null;
+  const chatMessages = activeConvo ? activeConvo.messages : [];
   const messages = mode === "chat" ? chatMessages : digestMessages;
+
+  useEffect(() => { saveToStorage("and:convos", conversations); }, [conversations]);
+  useEffect(() => { saveToStorage("and:activeId", activeId); }, [activeId]);
+  useEffect(() => { saveToStorage("and:digest", digestMessages); }, [digestMessages]);
+  useEffect(() => { saveToStorage("and:mode", mode); }, [mode]);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -268,16 +336,11 @@ export default function App() {
   useEffect(() => {
     if (mode !== "digest" || digestLoaded.current || loading) return;
     digestLoaded.current = true;
-
     setLoading(true);
     setError(null);
     fetch(`${API_BASE}/api/digest`)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error(`Server error (${r.status})`)))
-      .then((data) => {
-        if (data.markdown) {
-          setDigestMessages([{ role: "assistant", content: data.markdown, sources: [] }]);
-        }
-      })
+      .then((data) => { if (data.markdown) setDigestMessages([{ role: "assistant", content: data.markdown, sources: [] }]); })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [mode, loading, digestMessages.length]);
@@ -286,20 +349,35 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [chatMessages, digestMessages, loading, scrollToBottom]);
+  useEffect(() => { scrollToBottom(); }, [chatMessages, digestMessages, loading, scrollToBottom]);
+  useEffect(() => { inputRef.current?.focus(); }, [mode, activeId]);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, [mode]);
+  function updateConvoMessages(convoId, updater) {
+    setConversations((prev) =>
+      prev.map((c) => c.id === convoId ? { ...c, messages: updater(c.messages) } : c),
+    );
+  }
+
+  function createConversation(firstQuestion) {
+    const id = genId();
+    const title = firstQuestion.length > 50 ? firstQuestion.slice(0, 47) + "..." : firstQuestion;
+    const convo = { id, title, messages: [], createdAt: Date.now() };
+    setConversations((prev) => [convo, ...prev]);
+    setActiveId(id);
+    return id;
+  }
 
   async function sendChatMessage(question) {
     setError(null);
     setLastFailedInput(null);
 
+    let convoId = activeId;
+    if (!convoId) {
+      convoId = createConversation(question);
+    }
+
     const userMessage = { role: "user", content: question };
-    setChatMessages((prev) => [...prev, userMessage]);
+    updateConvoMessages(convoId, (msgs) => [...msgs, userMessage]);
     setLoading(true);
 
     try {
@@ -315,12 +393,11 @@ export default function App() {
       }
 
       const data = await res.json();
-      const assistantMessage = {
+      updateConvoMessages(convoId, (msgs) => [...msgs, {
         role: "assistant",
         content: data.answer,
         sources: data.sources || [],
-      };
-      setChatMessages((prev) => [...prev, assistantMessage]);
+      }]);
     } catch (err) {
       setError(err.message || "Something went wrong.");
       setLastFailedInput(question);
@@ -333,15 +410,12 @@ export default function App() {
     if (pipelineLoading || loading) return;
     setError(null);
     setPipelineLoading(true);
-
     try {
       const res = await fetch(`${API_BASE}/api/pipeline`, { method: "POST" });
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Server error (${res.status})`);
       }
-
       const data = await res.json();
       if (data.digest?.markdown) {
         setDigestMessages([{ role: "assistant", content: data.digest.markdown, sources: [] }]);
@@ -358,7 +432,6 @@ export default function App() {
     if (mode !== "chat") return;
     const trimmed = input.trim();
     if (!trimmed || loading || pipelineLoading) return;
-
     setInput("");
     sendChatMessage(trimmed);
   }
@@ -388,15 +461,19 @@ export default function App() {
     setLastFailedInput(null);
   }
 
-  function clearHistory() {
-    if (mode === "chat") {
-      setChatMessages([]);
-    } else {
-      setDigestMessages([]);
-      digestLoaded.current = false;
-    }
+  function handleNewChat() {
+    setActiveId(null);
     setError(null);
     setLastFailedInput(null);
+    setInput("");
+  }
+
+  function handleDeleteConvo(id) {
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    if (activeId === id) {
+      setActiveId(null);
+      setError(null);
+    }
   }
 
   const hasMessages = messages.length > 0;
@@ -408,100 +485,101 @@ export default function App() {
 
   return (
     <>
-      <header className="chat-header">
-        <div className="chat-header-inner">
-          <div className="chat-header-left">
-            <div className="chat-header-logo">
-              <HeaderLogo />
+      {mode === "chat" && (
+        <ChatSidebar
+          conversations={conversations}
+          activeId={activeId}
+          onSelect={(id) => { setActiveId(id); setError(null); }}
+          onNew={handleNewChat}
+          onDelete={handleDeleteConvo}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <div className={`app-main ${mode === "chat" ? "app-main-with-sidebar" : ""}`}>
+        <header className="chat-header">
+          <div className="chat-header-inner">
+            <div className="chat-header-left">
+              {mode === "chat" && (
+                <button className="sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)} title="Toggle conversations">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                  </svg>
+                </button>
+              )}
+              <div className="chat-header-logo">
+                <HeaderLogo />
+              </div>
+              <div>
+                <div className="chat-header-title">AI News Digest</div>
+                <div className="chat-header-subtitle">
+                  {mode === "chat" ? "RAG-powered news assistant" : "Weekly article summary"}
+                </div>
+              </div>
             </div>
-            <div>
-              <div className="chat-header-title">AI News Digest</div>
-              <div className="chat-header-subtitle">
-                {mode === "chat" ? "RAG-powered news assistant" : "Weekly article summary"}
+            <div className="chat-header-right">
+              {mode === "chat" && (
+                <button className="clear-btn" onClick={handleNewChat} disabled={isAnyLoading || !activeId} title="New chat">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                </button>
+              )}
+              {mode === "digest" && (
+                <button className="refresh-btn" onClick={runPipeline} disabled={isAnyLoading} title="Re-ingest RSS feeds, re-index vectors, and regenerate digest">
+                  <RefreshIcon />
+                  <span>Refresh Data</span>
+                </button>
+              )}
+              <div className="mode-switcher">
+                <button className={`mode-btn ${mode === "chat" ? "active" : ""}`} onClick={() => handleModeSwitch("chat")}>Chat</button>
+                <button className={`mode-btn ${mode === "digest" ? "active" : ""}`} onClick={() => handleModeSwitch("digest")}>Digest</button>
               </div>
             </div>
           </div>
-          <div className="chat-header-right">
-            {hasMessages && (
-              <button
-                className="clear-btn"
-                onClick={clearHistory}
-                disabled={isAnyLoading}
-                title="Clear conversation history"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                </svg>
-              </button>
+        </header>
+
+        {!apiOnline && <ApiOfflineBanner />}
+
+        <div className="chat-container">
+          <div className="chat-messages">
+            {!hasMessages && !isAnyLoading && mode === "chat" && (
+              <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
             )}
-            {mode === "digest" && (
-              <button
-                className="refresh-btn"
-                onClick={runPipeline}
-                disabled={isAnyLoading}
-                title="Re-ingest RSS feeds, re-index vectors, and regenerate digest"
-              >
-                <RefreshIcon />
-                <span>Refresh Data</span>
-              </button>
-            )}
-            <div className="mode-switcher">
-              <button
-                className={`mode-btn ${mode === "chat" ? "active" : ""}`}
-                onClick={() => handleModeSwitch("chat")}
-              >
-                Chat
-              </button>
-              <button
-                className={`mode-btn ${mode === "digest" ? "active" : ""}`}
-                onClick={() => handleModeSwitch("digest")}
-              >
-                Digest
-              </button>
+
+            {messages.map((msg, i) => (
+              <MessageBubble key={i} message={msg} onOpenSources={setDrawerSources} />
+            ))}
+
+            {isAnyLoading && <LoadingMessage text={loadingText} />}
+            {error && <ErrorBubble error={error} onRetry={handleRetry} />}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {mode === "chat" && (
+            <div className="chat-input-area">
+              <form onSubmit={handleSubmit} className="chat-input-wrapper">
+                <textarea
+                  ref={inputRef}
+                  className="chat-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask about AI news..."
+                  rows={1}
+                  disabled={isAnyLoading}
+                />
+                <button type="submit" className="chat-send-btn" disabled={isAnyLoading || !input.trim()}>
+                  <SendIcon />
+                </button>
+              </form>
             </div>
-          </div>
-        </div>
-      </header>
-
-      {!apiOnline && <ApiOfflineBanner />}
-
-      <div className="chat-container">
-        <div className="chat-messages">
-          {!hasMessages && !isAnyLoading && mode === "chat" && (
-            <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
           )}
-
-          {messages.map((msg, i) => (
-            <MessageBubble key={i} message={msg} onOpenSources={setDrawerSources} />
-          ))}
-
-          {isAnyLoading && <LoadingMessage text={loadingText} />}
-
-          {error && <ErrorBubble error={error} onRetry={handleRetry} />}
-
-          <div ref={messagesEndRef} />
         </div>
-
-        {mode === "chat" && (
-          <div className="chat-input-area">
-            <form onSubmit={handleSubmit} className="chat-input-wrapper">
-              <textarea
-                ref={inputRef}
-                className="chat-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask about AI news..."
-                rows={1}
-                disabled={isAnyLoading}
-              />
-              <button type="submit" className="chat-send-btn" disabled={isAnyLoading || !input.trim()}>
-                <SendIcon />
-              </button>
-            </form>
-          </div>
-        )}
       </div>
 
       {drawerSources && (

@@ -45,6 +45,11 @@ body,
   overflow: hidden;
 }
 
+#main {
+  display: flex;
+  flex-direction: row;
+}
+
 html {
   height: 100dvh;
   height: 100vh;
