@@ -375,8 +375,10 @@
 .refresh-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 14px;
+  height: 32px;
+  padding: 0 14px;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 8px;
   background: var(--color-white);
@@ -387,6 +389,7 @@
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .refresh-btn:hover:not(:disabled) {
@@ -434,12 +437,16 @@
   gap: 2px;
   background: var(--color-light-gray);
   border-radius: 10px;
-  padding: 3px;
+  padding: 2px;
   flex-shrink: 0;
+  align-items: center;
+  height: 32px;
+  box-sizing: border-box;
 }
 
 .mode-btn {
-  padding: 6px 16px;
+  height: 28px;
+  padding: 0 16px;
   border: none;
   border-radius: 8px;
   font-size: 12px;
@@ -450,6 +457,10 @@
   color: var(--color-muted);
   font-family: "Inter", sans-serif;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
 .mode-btn.active {
@@ -1211,7 +1222,7 @@
 
 .chat-input-wrapper {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
   background: var(--color-white);
   border-radius: 24px;
@@ -1279,48 +1290,100 @@
 @media (max-width: 809.98px) {
 
   .chat-header-inner {
-    padding: 10px 16px;
+    display: grid;
+    grid-template-rows: auto auto;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px 14px 14px;
+    align-items: center;
   }
 
+  /* Row 1: branding — logo + full title, no truncation */
   .chat-header-left {
     gap: 10px;
+    min-width: 0;
+  }
+
+  .chat-header-left > div {
+    min-width: 0;
+  }
+
+  .chat-header-title {
+    font-size: 15px;
+    font-weight: 600;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    line-height: 1.25;
+  }
+
+  .chat-header-subtitle {
+    display: block;
+    font-size: 11px;
+    color: var(--color-muted);
+    margin-top: 2px;
+  }
+
+  .chat-header-left .sidebar-toggle,
+  .chat-header-logo {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
   }
 
   .chat-header-logo {
-    width: 32px;
-    height: 32px;
     border-radius: 8px;
   }
 
   .chat-header-logo svg {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
   }
 
-  .chat-header-title {
-    font-size: 14px;
-  }
-
-  .chat-header-subtitle {
-    font-size: 10px;
-  }
-
+  /* Row 2: actions left, mode switcher right */
   .chat-header-right {
-    gap: 6px;
+    grid-row: 2;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .chat-header-right .digest-range-select,
+  .chat-header-right .refresh-btn {
+    flex-shrink: 0;
+  }
+
+  .chat-header-right .mode-switcher {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .mode-switcher {
+    align-items: center;
+    padding: 2px;
+    gap: 4px;
+    height: 32px;
+  }
+
+  .mode-btn {
+    height: 28px;
+    padding: 0 12px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .refresh-btn {
-    padding: 5px 8px;
+    height: 32px;
+    padding: 0 8px;
     font-size: 11px;
   }
 
   .refresh-btn span {
     display: none;
-  }
-
-  .mode-btn {
-    padding: 5px 10px;
-    font-size: 11px;
   }
 
   .chat-messages {
