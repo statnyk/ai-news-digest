@@ -1,22 +1,12 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "builder": "RAILPACK"
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "runtime": "V2",
-    "numReplicas": 1,
-    "startCommand": "node src/migrations/run.js && node src/server.js",
-    "overlapSeconds": 0,
-    "drainingSeconds": 0,
-    "sleepApplication": false,
-    "useLegacyStacker": false,
-    "ipv6EgressEnabled": false,
-    "multiRegionConfig": {
-      "europe-west4-drams3a": {
-        "numReplicas": 1
-      }
-    },
+    "startCommand": "node src/server.js",
+    "healthcheckPath": "/api/digest",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
