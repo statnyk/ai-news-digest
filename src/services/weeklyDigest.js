@@ -31,11 +31,11 @@ function formatDateShort(date) {
 }
 
 // ─── Markdown generation ─────────────────────────────────────
-function generateMarkdown(articles, startDate, endDate) {
+function generateMarkdown(articles, startDate, endDate, titleSuffix = "") {
   const lines = [];
 
   // Header
-  lines.push(`# 📰 AI News Weekly Digest`);
+  lines.push(`# 📰 AI News Weekly Digest${titleSuffix ? ` — ${titleSuffix}` : ""}`);
   lines.push(``);
   lines.push(`**${formatDate(startDate)} — ${formatDate(endDate)}**`);
   lines.push(``);
@@ -94,23 +94,47 @@ function generateMarkdown(articles, startDate, endDate) {
 }
 
 // ─── Main digest logic ───────────────────────────────────────
-export async function runDigest() {
+async function resolveTopic(topicSlug) {
+  if (!topicSlug) return null;
+  const result = await query(
+    `SELECT id, name, slug FROM topics WHERE slug = $1 LIMIT 1`,
+    [topicSlug]
+  );
+  return result.rows[0] || null;
+}
+
+export async function runDigest(options = {}) {
   log("DIGEST", "═══ Generating Weekly Digest ═══");
 
   const days = config.digest.days;
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
+  const topicSlug = options.topicSlug || null;
+  const topic = await resolveTopic(topicSlug);
 
   log("DIGEST", `  Date range: ${formatDateShort(startDate)} → ${formatDateShort(endDate)}`);
 
-  const result = await query(
-    `SELECT id, title, url, source, published_at, category, summary
-     FROM articles
-     WHERE published_at >= $1
-     ORDER BY published_at DESC`,
-    [startDate.toISOString()]
-  );
+  if (topicSlug && !topic) {
+    throw new Error("Topic not found.");
+  }
+
+  const result = topic
+    ? await query(
+        `SELECT a.id, a.title, a.url, a.source, a.published_at, a.category, a.summary
+         FROM articles a
+         INNER JOIN article_topics at ON at.article_id = a.id
+         WHERE a.published_at >= $1 AND at.topic_id = $2
+         ORDER BY a.published_at DESC`,
+        [startDate.toISOString(), topic.id]
+      )
+    : await query(
+        `SELECT id, title, url, source, published_at, category, summary
+         FROM articles
+         WHERE published_at >= $1
+         ORDER BY published_at DESC`,
+        [startDate.toISOString()]
+      );
 
   const articles = result.rows;
   log("DIGEST", `  Found ${articles.length} articles in the last ${days} days.`);
@@ -120,14 +144,15 @@ export async function runDigest() {
   }
 
   // Generate markdown
-  const markdown = generateMarkdown(articles, startDate, endDate);
+  const markdown = generateMarkdown(articles, startDate, endDate, topic?.name || "");
 
   // Write to file
   const outputDir = resolve(config.digest.outputDir);
   mkdirSync(outputDir, { recursive: true });
 
   const dateStr = endDate.toISOString().slice(0, 10);
-  const outputPath = resolve(outputDir, `weekly-digest-${dateStr}.md`);
+  const digestPrefix = topic ? `weekly-digest-${topic.slug}` : "weekly-digest";
+  const outputPath = resolve(outputDir, `${digestPrefix}-${dateStr}.md`);
   writeFileSync(outputPath, markdown, "utf-8");
 
   log("DIGEST", `  ✓ Digest written to: ${outputPath}`);

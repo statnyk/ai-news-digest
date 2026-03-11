@@ -100,7 +100,7 @@ async function enrichSummary(article) {
 }
 
 // ─── Main ingestion logic ────────────────────────────────────
-async function ingestFeed(feedUrl) {
+async function ingestFeed(feedUrl, topicId = null) {
   log("RSS", `Fetching feed: ${feedUrl}`);
 
   let feed;
@@ -149,8 +149,32 @@ async function ingestFeed(feedUrl) {
 
       if (result.rowCount > 0) {
         inserted++;
-        log("RSS", `  ✓ Inserted: "${article.title}" (id: ${result.rows[0].id})`);
+        const articleId = result.rows[0].id;
+        if (topicId) {
+          await query(
+            `INSERT INTO article_topics (article_id, topic_id)
+             VALUES ($1, $2)
+             ON CONFLICT (article_id, topic_id) DO NOTHING`,
+            [articleId, topicId]
+          );
+        }
+        log("RSS", `  ✓ Inserted: "${article.title}" (id: ${articleId})`);
       } else {
+        if (topicId) {
+          const existing = await query(
+            `SELECT id FROM articles WHERE url = $1 LIMIT 1`,
+            [article.url]
+          );
+          const articleId = existing.rows[0]?.id;
+          if (articleId) {
+            await query(
+              `INSERT INTO article_topics (article_id, topic_id)
+               VALUES ($1, $2)
+               ON CONFLICT (article_id, topic_id) DO NOTHING`,
+              [articleId, topicId]
+            );
+          }
+        }
         skipped++;
       }
     } catch (err) {
@@ -167,19 +191,60 @@ async function ingestFeed(feedUrl) {
 }
 
 // ─── Entry point ─────────────────────────────────────────────
-export async function runIngestion() {
+async function getFeedsForTopic(topicSlug) {
+  const topic = await query(
+    `SELECT id, name, slug FROM topics WHERE slug = $1 LIMIT 1`,
+    [topicSlug]
+  );
+  if (topic.rowCount === 0) {
+    return { error: "Topic not found." };
+  }
+
+  const feeds = await query(
+    `SELECT rss_url
+     FROM topic_sources
+     WHERE topic_id = $1 AND active = TRUE
+     ORDER BY created_at DESC`,
+    [topic.rows[0].id]
+  );
+
+  return {
+    topic: topic.rows[0],
+    feeds: feeds.rows.map((row) => row.rss_url),
+  };
+}
+
+export async function runIngestion(options = {}) {
   log("RSS", "═══ Starting RSS Ingestion ═══");
 
-  const feeds = config.rss.feeds;
+  const topicSlug = options.topicSlug || null;
+  let feeds = config.rss.feeds;
+  let topicId = null;
+
+  if (topicSlug) {
+    const topicData = await getFeedsForTopic(topicSlug);
+    if (topicData.error) {
+      throw new Error(topicData.error);
+    }
+    feeds = topicData.feeds;
+    topicId = topicData.topic.id;
+    log("RSS", `  Topic mode: ${topicData.topic.name} (${topicSlug})`);
+  }
+
   if (feeds.length === 0) {
-    log("RSS", "No RSS feeds configured. Set RSS_FEEDS in .env");
+    log(
+      "RSS",
+      topicSlug
+        ? `No RSS feeds configured for topic "${topicSlug}".`
+        : "No RSS feeds configured. Set RSS_FEEDS in .env"
+    );
     return { totalFetched: 0, totalInserted: 0, totalSkipped: 0, totalErrors: 0 };
   }
 
   const stats = { totalFetched: 0, totalInserted: 0, totalSkipped: 0, totalErrors: 0 };
 
   for (const feedUrl of feeds) {
-    const result = await ingestFeed(feedUrl);
+    const result = await ingestFeed(feedUrl, topicId);
     stats.totalFetched += result.fetched;
     stats.totalInserted += result.inserted;
     stats.totalSkipped += result.skipped;

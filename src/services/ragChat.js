@@ -70,7 +70,19 @@ Content: ${p.chunk_text}`;
 }
 
 // ─── Hybrid search: vector + keyword fallback (1.2 feature) ──
-async function hybridSearch(questionVector, questionText) {
+async function getAllowedArticleIds(topicSlug, articleIds) {
+  if (!topicSlug || articleIds.length === 0) return null;
+  const result = await query(
+    `SELECT at.article_id
+     FROM article_topics at
+     INNER JOIN topics t ON t.id = at.topic_id
+     WHERE t.slug = $1 AND at.article_id = ANY($2::int[])`,
+    [topicSlug, articleIds]
+  );
+  return new Set(result.rows.map((r) => r.article_id));
+}
+
+async function hybridSearch(questionVector, questionText, topicSlug = null) {
   // 1. Vector search
   const vectorResults = await searchSimilar(
     questionVector,
@@ -79,7 +91,15 @@ async function hybridSearch(questionVector, questionText) {
   );
 
   // 2. If vector results are sparse, supplement with keyword search
-  if (vectorResults.length < 3) {
+  const allowedIds = await getAllowedArticleIds(
+    topicSlug,
+    vectorResults.map((r) => r.payload.article_id)
+  );
+  let filteredVectorResults = allowedIds
+    ? vectorResults.filter((r) => allowedIds.has(r.payload.article_id))
+    : vectorResults;
+
+  if (filteredVectorResults.length < 3) {
     log("RAG", "  ℹ Low vector results, supplementing with keyword search...");
     // Prefer longest (most specific) terms so e.g. "youtube" is used, not just "what"/"tell"/"about"
     const keywords = questionText
@@ -96,14 +116,26 @@ async function hybridSearch(questionVector, questionText) {
 
       try {
         // Prefer articles matching the first (most specific) keyword, then by date
-        const result = await query(
-          `SELECT id, title, url, source, category, published_at, summary, content
-           FROM articles
-           WHERE ${conditions.join(" OR ")}
-           ORDER BY (title ILIKE $1 OR content ILIKE $1 OR summary ILIKE $1) DESC, published_at DESC
-           LIMIT 8`,
-          keywordQuery
-        );
+        const result = topicSlug
+          ? await query(
+              `SELECT a.id, a.title, a.url, a.source, a.category, a.published_at, a.summary, a.content
+               FROM articles a
+               INNER JOIN article_topics at ON at.article_id = a.id
+               INNER JOIN topics t ON t.id = at.topic_id
+               WHERE t.slug = $${keywordQuery.length + 1}
+                 AND (${conditions.join(" OR ")})
+               ORDER BY (a.title ILIKE $1 OR a.content ILIKE $1 OR a.summary ILIKE $1) DESC, a.published_at DESC
+               LIMIT 8`,
+              [...keywordQuery, topicSlug]
+            )
+          : await query(
+              `SELECT id, title, url, source, category, published_at, summary, content
+               FROM articles
+               WHERE ${conditions.join(" OR ")}
+               ORDER BY (title ILIKE $1 OR content ILIKE $1 OR summary ILIKE $1) DESC, published_at DESC
+               LIMIT 8`,
+              keywordQuery
+            );
 
         // Convert DB results to chunk-like format for context building
         const dbChunks = result.rows.map((row) => ({
@@ -120,10 +152,10 @@ async function hybridSearch(questionVector, questionText) {
         }));
 
         // Merge and deduplicate
-        const existingIds = new Set(vectorResults.map((r) => r.payload.article_id));
+        const existingIds = new Set(filteredVectorResults.map((r) => r.payload.article_id));
         for (const chunk of dbChunks) {
           if (!existingIds.has(chunk.payload.article_id)) {
-            vectorResults.push(chunk);
+            filteredVectorResults.push(chunk);
             existingIds.add(chunk.payload.article_id);
           }
         }
@@ -133,18 +165,19 @@ async function hybridSearch(questionVector, questionText) {
     }
   }
 
-  return vectorResults;
+  return filteredVectorResults;
 }
 
 // ─── Answer a single question ────────────────────────────────
-export async function answerQuestion(question) {
+export async function answerQuestion(question, options = {}) {
   log("RAG", `Question: "${question}"`);
+  const topicSlug = options.topicSlug || null;
 
   // 1. Embed the question
   const questionVector = await embedText(question);
 
   // 2. Hybrid search: vector + keyword fallback
-  const chunks = await hybridSearch(questionVector, question);
+  const chunks = await hybridSearch(questionVector, question, topicSlug);
   log("RAG", `  Retrieved ${chunks.length} relevant chunks.`);
 
   // 3. Build context
@@ -225,7 +258,7 @@ export async function handleChatRequest(body) {
   if (!question) {
     return { error: "No question provided." };
   }
-  return answerQuestion(question);
+  return answerQuestion(question, { topicSlug: body.topicSlug || null });
 }
 
 // Run directly

@@ -277,6 +277,17 @@
   gap: 10px;
 }
 
+.topic-select {
+  height: 32px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: var(--color-white);
+  color: var(--color-near-black);
+  padding: 0 10px;
+  font-size: 12px;
+  font-family: "Inter", sans-serif;
+}
+
 .chat-header-logo {
   width: 36px;
   height: 36px;
@@ -420,6 +431,53 @@
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 11px;
+}
+
+.topic-actions {
+  max-width: 780px;
+  width: 100%;
+  margin: 10px auto 0;
+  padding: 0 24px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.topic-form {
+  display: flex;
+  gap: 6px;
+}
+
+.topic-input {
+  height: 32px;
+  min-width: 220px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-family: "Inter", sans-serif;
+}
+
+.topic-btn {
+  height: 32px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: var(--color-white);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: "Inter", sans-serif;
+  cursor: pointer;
+}
+
+.topic-btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: rgba(178, 255, 0, 0.08);
+}
+
+.topic-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ─── Messages area ──────────────────────────────────────────── */

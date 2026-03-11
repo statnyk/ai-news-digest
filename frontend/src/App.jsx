@@ -39,6 +39,10 @@ function saveToStorage(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function normalizeTopicSlug(value) {
+  return value || "all";
+}
+
 function formatFriendlyDate(timestamp) {
   const date = new Date(timestamp);
   const now = new Date();
@@ -318,8 +322,10 @@ export default function App() {
   const [mode, setMode] = useState(() => loadFromStorage("and:mode", "chat"));
   const [conversations, setConversations] = useState(() => {
     const saved = loadFromStorage("and:convos", null);
-    if (saved && saved.length > 0) return saved;
-    return migrateOldChat();
+    if (saved && saved.length > 0) {
+      return saved.map((c) => ({ ...c, topicSlug: normalizeTopicSlug(c.topicSlug) }));
+    }
+    return migrateOldChat().map((c) => ({ ...c, topicSlug: "all" }));
   });
   const [activeId, setActiveId] = useState(() => {
     const saved = loadFromStorage("and:activeId", null);
@@ -336,8 +342,17 @@ export default function App() {
   const [drawerSources, setDrawerSources] = useState(null);
   const [apiOnline, setApiOnline] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [topics, setTopics] = useState([{ name: "All News", slug: "all", source_count: 0 }]);
+  const [selectedTopic, setSelectedTopic] = useState(() => loadFromStorage("and:selectedTopic", "all"));
+  const [newTopicName, setNewTopicName] = useState("");
+  const [newSourceUrl, setNewSourceUrl] = useState("");
+  const [topicLoading, setTopicLoading] = useState(false);
 
-  const activeConvo = conversations.find((c) => c.id === activeId) || null;
+  const filteredConversations = useMemo(
+    () => conversations.filter((c) => normalizeTopicSlug(c.topicSlug) === selectedTopic),
+    [conversations, selectedTopic],
+  );
+  const activeConvo = filteredConversations.find((c) => c.id === activeId) || null;
   const chatMessages = activeConvo ? activeConvo.messages : [];
   const messages = mode === "chat" ? chatMessages : digestMessages;
 
@@ -345,6 +360,7 @@ export default function App() {
   useEffect(() => { saveToStorage("and:activeId", activeId); }, [activeId]);
   useEffect(() => { saveToStorage("and:digest", digestMessages); }, [digestMessages]);
   useEffect(() => { saveToStorage("and:mode", mode); }, [mode]);
+  useEffect(() => { saveToStorage("and:selectedTopic", selectedTopic); }, [selectedTopic]);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -357,18 +373,36 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/topics`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Server error (${r.status})`))))
+      .then((data) => {
+        if (cancelled) return;
+        const apiTopics = Array.isArray(data.topics) ? data.topics : [];
+        setTopics([{ name: "All News", slug: "all", source_count: 0 }, ...apiTopics]);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTopics([{ name: "All News", slug: "all", source_count: 0 }]);
+        }
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const digestLoaded = useRef(digestMessages.length > 0);
   useEffect(() => {
     if (mode !== "digest" || digestLoaded.current || loading) return;
     digestLoaded.current = true;
     setLoading(true);
     setError(null);
-    fetch(`${API_BASE}/api/digest`)
+    const topicQuery = selectedTopic !== "all" ? `?topic=${encodeURIComponent(selectedTopic)}` : "";
+    fetch(`${API_BASE}/api/digest${topicQuery}`)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error(`Server error (${r.status})`)))
       .then((data) => { if (data.markdown) setDigestMessages([{ role: "assistant", content: data.markdown, sources: [] }]); })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [mode, loading, digestMessages.length]);
+  }, [mode, loading, digestMessages.length, selectedTopic]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -386,7 +420,7 @@ export default function App() {
   function createConversation(firstQuestion) {
     const id = genId();
     const title = firstQuestion.length > 50 ? firstQuestion.slice(0, 47) + "..." : firstQuestion;
-    const convo = { id, title, messages: [], createdAt: Date.now() };
+    const convo = { id, title, messages: [], createdAt: Date.now(), topicSlug: selectedTopic };
     setConversations((prev) => [convo, ...prev]);
     setActiveId(id);
     return id;
@@ -409,7 +443,10 @@ export default function App() {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: question }),
+        body: JSON.stringify({
+          message: question,
+          ...(selectedTopic !== "all" && { topicSlug: selectedTopic }),
+        }),
       });
 
       if (!res.ok) {
@@ -436,7 +473,13 @@ export default function App() {
     setError(null);
     setPipelineLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/pipeline`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/api/pipeline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(selectedTopic !== "all" && { topicSlug: selectedTopic }),
+        }),
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Server error (${res.status})`);
@@ -493,6 +536,57 @@ export default function App() {
     setInput("");
   }
 
+  async function handleCreateTopic(e) {
+    e.preventDefault();
+    const name = newTopicName.trim();
+    if (!name) return;
+    setTopicLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/topics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error("Failed to create topic.");
+      const data = await res.json();
+      const created = data.topic;
+      if (created) {
+        setTopics((prev) => {
+          const withoutDupes = prev.filter((t) => t.slug !== created.slug);
+          return [withoutDupes[0], created, ...withoutDupes.slice(1)];
+        });
+        setSelectedTopic(created.slug);
+        setNewTopicName("");
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTopicLoading(false);
+    }
+  }
+
+  async function handleAddSource(e) {
+    e.preventDefault();
+    if (selectedTopic === "all") return;
+    const rssUrl = newSourceUrl.trim();
+    if (!rssUrl) return;
+    setTopicLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/topics/${selectedTopic}/sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rssUrl }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to add RSS URL.");
+      setNewSourceUrl("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTopicLoading(false);
+    }
+  }
+
   function handleDeleteConvo(id) {
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) {
@@ -512,7 +606,7 @@ export default function App() {
     <>
       {mode === "chat" && (
         <ChatSidebar
-          conversations={conversations}
+          conversations={filteredConversations}
           activeId={activeId}
           onSelect={(id) => { setActiveId(id); setError(null); }}
           onNew={handleNewChat}
@@ -546,6 +640,24 @@ export default function App() {
               </div>
             </div>
             <div className="chat-header-right">
+              <select
+                className="topic-select"
+                value={selectedTopic}
+                onChange={(e) => {
+                  setSelectedTopic(e.target.value);
+                  setActiveId(null);
+                  setError(null);
+                  digestLoaded.current = false;
+                  setDigestMessages([]);
+                }}
+                disabled={isAnyLoading}
+              >
+                {topics.map((t) => (
+                  <option key={t.slug} value={t.slug}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
               {mode === "chat" && (
                 <button className="clear-btn" onClick={handleNewChat} disabled={isAnyLoading || !activeId} title="New chat">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -571,6 +683,34 @@ export default function App() {
         {!apiOnline && <ApiOfflineBanner />}
 
         <div className="chat-container">
+          <div className="topic-actions">
+            <form onSubmit={handleCreateTopic} className="topic-form">
+              <input
+                className="topic-input"
+                value={newTopicName}
+                onChange={(e) => setNewTopicName(e.target.value)}
+                placeholder="New folder (e.g. Crypto)"
+                disabled={topicLoading}
+              />
+              <button className="topic-btn" type="submit" disabled={topicLoading || !newTopicName.trim()}>
+                Add Folder
+              </button>
+            </form>
+            {selectedTopic !== "all" && (
+              <form onSubmit={handleAddSource} className="topic-form">
+                <input
+                  className="topic-input"
+                  value={newSourceUrl}
+                  onChange={(e) => setNewSourceUrl(e.target.value)}
+                  placeholder="Add RSS URL to this folder"
+                  disabled={topicLoading}
+                />
+                <button className="topic-btn" type="submit" disabled={topicLoading || !newSourceUrl.trim()}>
+                  Add RSS
+                </button>
+              </form>
+            )}
+          </div>
           <div className="chat-scroll-view">
             <div className="chat-messages">
             {!hasMessages && !isAnyLoading && mode === "chat" && (

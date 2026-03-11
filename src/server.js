@@ -8,6 +8,12 @@ import { handleChatRequest } from "./services/ragChat.js";
 import { runDigest } from "./services/weeklyDigest.js";
 import { runIngestion } from "./services/rssIngestion.js";
 import { runIndexing } from "./services/vectorIndexing.js";
+import {
+  listTopics,
+  createTopic,
+  listTopicSources,
+  addTopicSource,
+} from "./services/topics.js";
 import { log } from "./utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,11 +26,14 @@ app.use(cors());
 app.use(express.json());
 
 // Serve the latest digest file from disk (avoids regenerating every time)
-function getLatestDigest() {
+function getLatestDigest(topicSlug = null) {
   const outputDir = resolve(config.digest.outputDir);
+  const topicPattern = topicSlug
+    ? new RegExp(`^weekly-digest-${topicSlug}-\\d{4}-\\d{2}-\\d{2}\\.md$`)
+    : /^weekly-digest-\d{4}-\d{2}-\d{2}\.md$/;
   try {
     const files = readdirSync(outputDir)
-      .filter((f) => f.startsWith("weekly-digest-") && f.endsWith(".md"))
+      .filter((f) => topicPattern.test(f))
       .sort((a, b) => b.localeCompare(a));
 
     if (files.length > 0) {
@@ -54,24 +63,68 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+app.get("/api/topics", async (_req, res) => {
+  try {
+    const topics = await listTopics();
+    res.json({ topics });
+  } catch (err) {
+    log("API", `Topics list error: ${err.message}`);
+    res.status(500).json({ error: "Failed to list topics." });
+  }
+});
+
+app.post("/api/topics", async (req, res) => {
+  try {
+    const topic = await createTopic(req.body?.name || "");
+    if (topic.error) return res.status(400).json(topic);
+    res.status(201).json({ topic });
+  } catch (err) {
+    log("API", `Topic create error: ${err.message}`);
+    res.status(500).json({ error: "Failed to create topic." });
+  }
+});
+
+app.get("/api/topics/:slug/sources", async (req, res) => {
+  try {
+    const result = await listTopicSources(req.params.slug);
+    if (result.error) return res.status(404).json(result);
+    res.json(result);
+  } catch (err) {
+    log("API", `Topic source list error: ${err.message}`);
+    res.status(500).json({ error: "Failed to list sources." });
+  }
+});
+
+app.post("/api/topics/:slug/sources", async (req, res) => {
+  try {
+    const result = await addTopicSource(req.params.slug, req.body?.rssUrl || "");
+    if (result.error) return res.status(400).json(result);
+    res.status(201).json(result);
+  } catch (err) {
+    log("API", `Topic source create error: ${err.message}`);
+    res.status(500).json({ error: "Failed to add source." });
+  }
+});
+
 app.get("/api/digest", async (req, res) => {
   try {
     const generate = req.query.generate === "true";
+    const topicSlug = req.query.topic ? String(req.query.topic) : null;
 
     if (generate) {
-      const result = await runDigest();
+      const result = await runDigest({ topicSlug });
       return res.json({
         articleCount: result.articleCount,
         markdown: result.markdown,
       });
     }
 
-    const cached = getLatestDigest();
+    const cached = getLatestDigest(topicSlug);
     if (cached) {
       return res.json(cached);
     }
 
-    const result = await runDigest();
+    const result = await runDigest({ topicSlug });
     res.json({
       articleCount: result.articleCount,
       markdown: result.markdown,
@@ -82,8 +135,9 @@ app.get("/api/digest", async (req, res) => {
   }
 });
 
-app.post("/api/pipeline", async (_req, res) => {
+app.post("/api/pipeline", async (req, res) => {
   log("API", "Pipeline started: ingest -> index -> digest");
+  const topicSlug = req.body?.topicSlug || null;
 
   const stepErrors = [];
   let ingested = 0;
@@ -92,7 +146,7 @@ app.post("/api/pipeline", async (_req, res) => {
 
   // Step 1: RSS ingestion — failure is non-fatal, pipeline continues
   try {
-    const stats = await runIngestion();
+    const stats = await runIngestion({ topicSlug });
     ingested = stats?.totalInserted ?? 0;
     log("API", `Ingestion done: ${ingested} new articles`);
   } catch (err) {
@@ -112,7 +166,7 @@ app.post("/api/pipeline", async (_req, res) => {
 
   // Step 3: Digest generation — failure is non-fatal
   try {
-    const result = await runDigest();
+    const result = await runDigest({ topicSlug });
     digest = { articleCount: result.articleCount, markdown: result.markdown };
     log("API", `Digest done: ${result.articleCount} articles`);
   } catch (err) {
