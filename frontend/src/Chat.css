@@ -597,6 +597,105 @@
   gap: 10px;
 }
 
+.topic-sources-section {
+  margin: 4px 0;
+}
+
+.topic-sources-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted);
+  margin-bottom: 6px;
+}
+
+.topic-sources-loading,
+.topic-sources-empty {
+  font-size: 13px;
+  color: var(--color-muted);
+  padding: 8px 0;
+}
+
+.topic-sources-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.topic-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--color-light-gray);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.topic-source-url {
+  color: var(--color-near-black);
+  text-decoration: none;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic-source-url:hover {
+  text-decoration: underline;
+  color: var(--color-accent, #0a0);
+}
+
+.topic-source-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.topic-source-action-btn {
+  padding: 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.topic-source-action-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--color-near-black);
+}
+
+.topic-source-action-btn.topic-source-remove:hover:not(:disabled) {
+  background: rgba(200, 60, 60, 0.1);
+  color: #c0392b;
+}
+
+.topic-source-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.topic-source-edit-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.topic-btn-small {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 /* ─── Messages area ──────────────────────────────────────────── */
 
 .chat-messages {

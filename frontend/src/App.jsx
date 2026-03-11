@@ -892,7 +892,7 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to update feed.");
       if (data.source) {
-        setTopicSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, ...data.source, rss_url: data.source.rss_url ?? data.source.rssUrl ?? s.rss_url } : s)));
+        setTopicSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, ...data.source } : s)));
       }
     } catch (err) {
       setError(err.message);
