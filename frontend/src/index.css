@@ -46,8 +46,8 @@ body,
 }
 
 #main {
-  display: flex;
-  flex-direction: row;
+  display: block;
+  width: 100%;
 }
 
 html {

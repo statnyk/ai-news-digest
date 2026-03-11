@@ -39,6 +39,21 @@ function saveToStorage(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function formatFriendlyDate(timestamp) {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const daysDiff = Math.floor((startToday - startDate) / (24 * 60 * 60 * 1000));
+
+  if (daysDiff === 0) return "Today";
+  if (daysDiff === 1) return "Yesterday";
+  if (daysDiff >= 2 && daysDiff <= 6) return `${daysDiff} days ago`;
+  if (daysDiff >= 7 && daysDiff <= 13) return "Last week";
+  if (daysDiff >= 14 && daysDiff <= 29) return "Last month";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+}
+
 function migrateOldChat() {
   const old = loadFromStorage("and:chat", null);
   if (!old || !Array.isArray(old) || old.length === 0) return [];
@@ -178,6 +193,16 @@ function SourcesDrawer({ sources, onClose }) {
   );
 }
 
+function MarkdownLink({ node, children, ...props }) {
+  return (
+    <a {...props} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  );
+}
+
+const markdownComponents = { a: MarkdownLink };
+
 function MessageBubble({ message, onOpenSources }) {
   const isUser = message.role === "user";
   const uniqueSources = useMemo(
@@ -189,7 +214,7 @@ function MessageBubble({ message, onOpenSources }) {
     <div className={`chat-message ${isUser ? "chat-message-user" : "chat-message-assistant"}`}>
       <div className="chat-message-label">{isUser ? "you" : "assistant"}</div>
       <div className="chat-message-bubble">
-        {isUser ? message.content : <ReactMarkdown>{message.content}</ReactMarkdown>}
+        {isUser ? message.content : <ReactMarkdown components={markdownComponents}>{message.content}</ReactMarkdown>}
       </div>
       {uniqueSources.length > 0 && (
         <SourcesButton count={uniqueSources.length} onClick={() => onOpenSources(uniqueSources)} />
@@ -267,7 +292,7 @@ function ChatSidebar({ conversations, activeId, onSelect, onNew, onDelete, isOpe
             >
               <div className="sidebar-item-content">
                 <div className="sidebar-item-title">{c.title}</div>
-                <div className="sidebar-item-date">{new Date(c.createdAt).toLocaleDateString()}</div>
+                <div className="sidebar-item-date">{formatFriendlyDate(c.createdAt)}</div>
               </div>
               <button
                 className="sidebar-item-delete"

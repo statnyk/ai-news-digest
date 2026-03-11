@@ -3,7 +3,7 @@
 .app-main {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  width: 100%;
   min-width: 0;
   height: 100%;
   overflow: hidden;
@@ -39,18 +39,20 @@
   border-radius: 3px;
 }
 
-/* ─── Sidebar ────────────────────────────────────────────────── */
+/* ─── Sidebar (overlay, does not shift main content) ──────────── */
 
 .sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
   width: 260px;
-  min-width: 260px;
   height: 100%;
   background: var(--color-white);
   border-right: 1px solid rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
   z-index: 50;
-  flex-shrink: 0;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.06);
 }
 
 .sidebar-header {
@@ -211,10 +213,14 @@
   color: var(--color-near-black);
 }
 
-/* Desktop: sidebar always visible, hide toggle */
+/* Desktop: sidebar always visible, hide toggle, offset main content */
 @media (min-width: 810px) {
   .sidebar-toggle { display: none; }
   .sidebar-overlay { display: none !important; }
+
+  .app-main-with-sidebar {
+    margin-left: 260px;
+  }
 }
 
 /* Mobile: sidebar is off-screen, toggle visible */
