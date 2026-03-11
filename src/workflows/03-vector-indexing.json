@@ -1,5 +1,5 @@
 {
-  "name": "03 — Vector Store Indexing",
+  "name": "03 — Vector Indexing (Current App Pipeline)",
   "nodes": [
     {
       "parameters": {},
@@ -11,92 +11,48 @@
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT id, title, url, source, category, published_at, summary, content\nFROM articles\nWHERE indexed_at IS NULL\nORDER BY published_at DESC\nLIMIT 100;",
-        "additionalFields": {}
-      },
-      "id": "fetch-unindexed",
-      "name": "Fetch Unindexed Articles",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [460, 300],
-      "credentials": {
-        "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "PostgreSQL — AI News Digest"
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 2 }]
         }
-      }
+      },
+      "id": "trigger-schedule",
+      "name": "Schedule (Every 2h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 500]
     },
     {
       "parameters": {
-        "jsCode": "// Chunk article content for embedding\nconst CHUNK_SIZE = 500;\nconst CHUNK_OVERLAP = 50;\n\nconst articles = $input.all().map(i => i.json);\nconst allChunks = [];\n\nfor (const article of articles) {\n  const text = article.content || article.summary || '';\n  if (text.length < 50) continue;\n  \n  // Sentence-based chunking\n  const sentences = text.match(/[^.!?\\n]+[.!?\\n]*/g) || [text];\n  let currentChunk = '';\n  let chunkIndex = 0;\n  \n  for (const sentence of sentences) {\n    const trimmed = sentence.trim();\n    if (!trimmed) continue;\n    \n    if (currentChunk.length + trimmed.length > CHUNK_SIZE && currentChunk.length > 0) {\n      allChunks.push({\n        json: {\n          pointId: article.id * 10000 + chunkIndex,\n          articleId: article.id,\n          chunkIndex,\n          chunkText: currentChunk.trim(),\n          textForEmbedding: article.title + '\\n\\n' + currentChunk.trim(),\n          title: article.title,\n          source: article.source,\n          category: article.category,\n          published_at: article.published_at,\n          url: article.url\n        }\n      });\n      chunkIndex++;\n      const overlap = currentChunk.slice(-CHUNK_OVERLAP);\n      currentChunk = overlap + ' ' + trimmed;\n    } else {\n      currentChunk += (currentChunk ? ' ' : '') + trimmed;\n    }\n  }\n  \n  if (currentChunk.trim()) {\n    allChunks.push({\n      json: {\n        pointId: article.id * 10000 + chunkIndex,\n        articleId: article.id,\n        chunkIndex,\n        chunkText: currentChunk.trim(),\n        textForEmbedding: article.title + '\\n\\n' + currentChunk.trim(),\n        title: article.title,\n        source: article.source,\n        category: article.category,\n        published_at: article.published_at,\n        url: article.url\n      }\n    });\n  }\n}\n\nreturn allChunks;"
+        "method": "POST",
+        "url": "https://ai-news-digest-production.up.railway.app/api/pipeline",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"range\":\"1d\"}",
+        "options": {
+          "timeout": 600000
+        }
       },
-      "id": "chunk-articles",
-      "name": "Chunk Article Content",
+      "id": "run-pipeline",
+      "name": "Run Pipeline API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $json;\n\nreturn [{\n  json: {\n    message: `Pipeline finished. Indexed chunks: ${result.indexed ?? 0}`,\n    indexedChunks: result.indexed ?? 0,\n    ingested: result.ingested ?? 0,\n    digestArticleCount: result.digest?.articleCount ?? 0,\n    stepErrors: result.stepErrors || [],\n    note: 'Current app exposes indexing through /api/pipeline.',\n    timestamp: new Date().toISOString(),\n    raw: result\n  }\n}];"
+      },
+      "id": "summary",
+      "name": "Indexing Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [720, 300]
-    },
-    {
-      "parameters": {
-        "model": "text-embedding-3-small",
-        "text": "={{ $json.textForEmbedding }}"
-      },
-      "id": "generate-embeddings",
-      "name": "Generate Embeddings",
-      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
-      "typeVersion": 1,
-      "position": [980, 300],
-      "credentials": {
-        "openAiApi": {
-          "id": "CONFIGURE_ME",
-          "name": "OpenAI — AI News Digest"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "mode": "insert",
-        "qdrantCollection": "articles",
-        "options": {}
-      },
-      "id": "upsert-qdrant",
-      "name": "Upsert to Qdrant",
-      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
-      "typeVersion": 1,
-      "position": [1240, 300],
-      "credentials": {
-        "qdrantApi": {
-          "id": "CONFIGURE_ME",
-          "name": "Qdrant — AI News Digest"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE articles SET indexed_at = NOW() WHERE id IN ({{ $json.articleIds }});",
-        "additionalFields": {}
-      },
-      "id": "mark-indexed",
-      "name": "Mark as Indexed",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [1500, 300],
-      "credentials": {
-        "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "PostgreSQL — AI News Digest"
-        }
-      }
+      "position": [780, 400]
     }
   ],
   "connections": {
-    "Manual Trigger": { "main": [[{ "node": "Fetch Unindexed Articles", "type": "main", "index": 0 }]] },
-    "Fetch Unindexed Articles": { "main": [[{ "node": "Chunk Article Content", "type": "main", "index": 0 }]] },
-    "Chunk Article Content": { "main": [[{ "node": "Generate Embeddings", "type": "main", "index": 0 }]] },
-    "Generate Embeddings": { "main": [[{ "node": "Upsert to Qdrant", "type": "main", "index": 0 }]] },
-    "Upsert to Qdrant": { "main": [[{ "node": "Mark as Indexed", "type": "main", "index": 0 }]] }
+    "Manual Trigger": { "main": [[{ "node": "Run Pipeline API", "type": "main", "index": 0 }]] },
+    "Schedule (Every 2h)": { "main": [[{ "node": "Run Pipeline API", "type": "main", "index": 0 }]] },
+    "Run Pipeline API": { "main": [[{ "node": "Indexing Summary", "type": "main", "index": 0 }]] }
   },
   "settings": {
     "executionOrder": "v1"

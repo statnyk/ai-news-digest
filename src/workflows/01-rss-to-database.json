@@ -1,5 +1,5 @@
 {
-  "name": "01 — RSS → Database Ingestion",
+  "name": "01 — RSS Ingestion (Current App Pipeline)",
   "nodes": [
     {
       "parameters": {},
@@ -7,7 +7,7 @@
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [220, 300]
+      "position": [220, 280]
     },
     {
       "parameters": {
@@ -19,77 +19,40 @@
       "name": "Schedule (Every 6h)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [220, 500]
+      "position": [220, 460]
     },
     {
       "parameters": {
-        "jsCode": "// RSS Feed URLs from environment or hardcoded\nconst feeds = [\n  'https://techcrunch.com/category/artificial-intelligence/feed/',\n  'https://feeds.arstechnica.com/arstechnica/technology-lab',\n  'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml'\n];\n\nreturn feeds.map(url => ({ json: { feedUrl: url } }));"
-      },
-      "id": "feed-list",
-      "name": "Feed URL List",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [460, 400]
-    },
-    {
-      "parameters": {
-        "url": "={{ $json.feedUrl }}",
+        "method": "POST",
+        "url": "https://ai-news-digest-production.up.railway.app/api/pipeline",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"range\":\"1w\"}",
         "options": {
-          "timeout": 15000
+          "timeout": 600000
         }
       },
-      "id": "rss-read",
-      "name": "RSS Read",
-      "type": "n8n-nodes-base.rssFeedRead",
-      "typeVersion": 1,
-      "position": [700, 400]
+      "id": "run-pipeline",
+      "name": "Run Pipeline API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 370]
     },
     {
       "parameters": {
-        "jsCode": "// Normalize RSS items into consistent article records\nconst SOURCE_MAP = {\n  'techcrunch.com': 'TechCrunch',\n  'arstechnica.com': 'Ars Technica',\n  'theverge.com': 'The Verge'\n};\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const feedUrl = data.feedUrl || '';\n  \n  // Determine source name\n  let source = 'Unknown';\n  for (const [domain, name] of Object.entries(SOURCE_MAP)) {\n    if ((data.link || feedUrl).includes(domain)) {\n      source = name;\n      break;\n    }\n  }\n  \n  // Extract category\n  const category = (data.categories && data.categories[0]) \n    ? (typeof data.categories[0] === 'string' ? data.categories[0] : 'ai')\n    : 'ai';\n  \n  // Clean content (strip HTML)\n  const content = (data['content:encoded'] || data.content || data.contentSnippet || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n  \n  const summary = (data.contentSnippet || data.summary || '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 500);\n  \n  results.push({\n    json: {\n      title: (data.title || 'Untitled').trim(),\n      url: (data.link || data.guid || '').trim(),\n      source,\n      published_at: data.isoDate || data.pubDate || new Date().toISOString(),\n      category: category.toLowerCase(),\n      summary: summary || null,\n      content: content || null\n    }\n  });\n}\n\nreturn results;"
-      },
-      "id": "normalize",
-      "name": "Normalize Articles",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [940, 400]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO articles (title, url, source, published_at, category, summary, content)\nVALUES (\n  '{{ ($json.title || \"\").replace(/'/g, \"''\") }}',\n  '{{ ($json.url || \"\").replace(/'/g, \"''\") }}',\n  '{{ ($json.source || \"\").replace(/'/g, \"''\") }}',\n  '{{ ($json.published_at || new Date().toISOString()).replace(/'/g, \"''\") }}'::timestamptz,\n  '{{ ($json.category || \"ai\").replace(/'/g, \"''\") }}',\n  {{ $json.summary ? \"'\" + $json.summary.replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n  {{ $json.content ? \"'\" + $json.content.replace(/'/g, \"''\") + \"'\" : \"NULL\" }}\n)\nON CONFLICT (url) DO NOTHING\nRETURNING id, title;",
-        "additionalFields": {}
-      },
-      "id": "postgres-insert",
-      "name": "Insert to PostgreSQL",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [1180, 400],
-      "credentials": {
-        "postgres": {
-          "id": "CONFIGURE_ME",
-          "name": "PostgreSQL — AI News Digest"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Count results\nconst items = $input.all();\nconst inserted = items.filter(i => i.json.id).length;\nconst total = items.length;\n\nreturn [{\n  json: {\n    message: `Ingestion complete: ${inserted} new articles inserted out of ${total} processed.`,\n    inserted,\n    total,\n    timestamp: new Date().toISOString()\n  }\n}];"
+        "jsCode": "const result = $json;\n\nreturn [{\n  json: {\n    message: `Pipeline finished. Ingested: ${result.ingested ?? 0}, Indexed chunks: ${result.indexed ?? 0}, Digest articles: ${result.digest?.articleCount ?? 0}`,\n    ingested: result.ingested ?? 0,\n    indexed: result.indexed ?? 0,\n    digestArticleCount: result.digest?.articleCount ?? 0,\n    stepErrors: result.stepErrors || [],\n    timestamp: new Date().toISOString(),\n    raw: result\n  }\n}];"
       },
       "id": "summary",
-      "name": "Ingestion Summary",
+      "name": "Pipeline Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1420, 400]
+      "position": [780, 370]
     }
   ],
   "connections": {
-    "Manual Trigger": { "main": [[{ "node": "Feed URL List", "type": "main", "index": 0 }]] },
-    "Schedule (Every 6h)": { "main": [[{ "node": "Feed URL List", "type": "main", "index": 0 }]] },
-    "Feed URL List": { "main": [[{ "node": "RSS Read", "type": "main", "index": 0 }]] },
-    "RSS Read": { "main": [[{ "node": "Normalize Articles", "type": "main", "index": 0 }]] },
-    "Normalize Articles": { "main": [[{ "node": "Insert to PostgreSQL", "type": "main", "index": 0 }]] },
-    "Insert to PostgreSQL": { "main": [[{ "node": "Ingestion Summary", "type": "main", "index": 0 }]] }
+    "Manual Trigger": { "main": [[{ "node": "Run Pipeline API", "type": "main", "index": 0 }]] },
+    "Schedule (Every 6h)": { "main": [[{ "node": "Run Pipeline API", "type": "main", "index": 0 }]] },
+    "Run Pipeline API": { "main": [[{ "node": "Pipeline Summary", "type": "main", "index": 0 }]] }
   },
   "settings": {
     "executionOrder": "v1"
