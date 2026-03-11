@@ -1,80 +1,19 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
+import { API_BASE, DIGEST_RANGES, QUESTION_POOL } from "./shared/config/constants.js";
+import {
+  genId,
+  loadFromStorage,
+  saveToStorage,
+  normalizeTopicSlug,
+  migrateOldChat,
+} from "./shared/lib/storage.js";
+import {
+  pickRandom,
+  deduplicateSources,
+  formatFriendlyDate,
+} from "./entities/message/lib/messageUtils.js";
 import "./Chat.css";
-
-const API_BASE = import.meta.env.VITE_API_URL || "";
-const DIGEST_RANGES = [
-  { value: "5m", label: "Last 5 minutes" },
-  { value: "30m", label: "Last 30 minutes" },
-  { value: "1h", label: "Last 1 hour" },
-  { value: "1d", label: "Last 1 day" },
-  { value: "3d", label: "Last 3 days" },
-  { value: "1w", label: "Last 1 week" },
-];
-
-const QUESTION_POOL = [
-  "What are the latest AI news?",
-  "Tell me about recent LLM developments",
-  "What's new in machine learning research?",
-  "Any breakthroughs in computer vision?",
-  "What are companies doing with generative AI?",
-  "Are there concerns about AI safety recently?",
-  "What open-source AI models were released?",
-  "Tell me about AI regulation news",
-  "What's happening in robotics and AI?",
-  "Any news about AI in healthcare?",
-  "What AI startups raised funding recently?",
-  "How is AI being used in education?",
-];
-
-function pickRandom(arr, n) {
-  const shuffled = [...arr].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, n);
-}
-
-function genId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
-
-function loadFromStorage(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch { return fallback; }
-}
-
-function saveToStorage(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function normalizeTopicSlug(value) {
-  return value || "all";
-}
-
-function formatFriendlyDate(timestamp) {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const daysDiff = Math.floor((startToday - startDate) / (24 * 60 * 60 * 1000));
-
-  if (daysDiff === 0) return "Today";
-  if (daysDiff === 1) return "Yesterday";
-  if (daysDiff >= 2 && daysDiff <= 6) return `${daysDiff} days ago`;
-  if (daysDiff >= 7 && daysDiff <= 13) return "Last week";
-  if (daysDiff >= 14 && daysDiff <= 29) return "Last month";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
-}
-
-function migrateOldChat() {
-  const old = loadFromStorage("and:chat", null);
-  if (!old || !Array.isArray(old) || old.length === 0) return [];
-  localStorage.removeItem("and:chat");
-  const id = genId();
-  const firstUserMsg = old.find((m) => m.role === "user");
-  const title = firstUserMsg ? (firstUserMsg.content.length > 50 ? firstUserMsg.content.slice(0, 47) + "..." : firstUserMsg.content) : "Previous chat";
-  return [{ id, title, messages: old, createdAt: Date.now() }];
-}
 
 /* ─── Small icon components ──────────────────────────────────── */
 
@@ -98,10 +37,9 @@ function RefreshIcon() {
 
 function HeaderLogo() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M12 2L14.5 8.5L21 9.5L16.5 14L17.5 21L12 17.5L6.5 21L7.5 14L3 9.5L9.5 8.5L12 2Z"
-        stroke="#b2ff00" strokeWidth="1.5" strokeLinejoin="round" />
-      <circle cx="12" cy="12" r="1.2" fill="#b2ff00" />
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M22 3 A7 7 0 0 0 29 10 A7 7 0 0 0 22 17 A7 7 0 0 0 15 10 A7 7 0 0 0 22 3 Z" fill="#b2ff00" />
+      <path d="M3 12L13 12M3 20L21 20M3 28L29 28" stroke="#b2ff00" strokeWidth={4} strokeLinecap="round" fill="none" />
     </svg>
   );
 }
@@ -142,15 +80,6 @@ function LoadingMessage({ text }) {
       </div>
     </div>
   );
-}
-
-function deduplicateSources(sources) {
-  const seen = new Set();
-  return sources.filter((s) => {
-    if (seen.has(s.url)) return false;
-    seen.add(s.url);
-    return true;
-  });
 }
 
 function SourcesButton({ count, onClick }) {
@@ -390,8 +319,6 @@ function TopicSourceRow({ source, onRemove, onUpdate, disabled }) {
   const [editing, setEditing] = useState(false);
   const [editUrl, setEditUrl] = useState(source.rss_url);
 
-  useEffect(() => { setEditUrl(source.rss_url); }, [source.rss_url]);
-
   const displayUrl = source.rss_url.length > 56 ? source.rss_url.slice(0, 53) + "…" : source.rss_url;
 
   return (
@@ -430,7 +357,7 @@ function TopicSourceRow({ source, onRemove, onUpdate, disabled }) {
           </a>
           <div className="topic-source-actions">
             {onUpdate && (
-              <button type="button" className="topic-source-action-btn" onClick={() => setEditing(true)} disabled={disabled} title="Change URL">
+              <button type="button" className="topic-source-action-btn" onClick={() => { setEditUrl(source.rss_url); setEditing(true); }} disabled={disabled} title="Change URL">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
               </button>
             )}
