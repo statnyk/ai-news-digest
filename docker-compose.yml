@@ -55,35 +55,7 @@ services:
       qdrant:
         condition: service_healthy
 
-  # ─── n8n Workflow Engine ─────────────────────────────────────
-  n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
-    container_name: ai-news-n8n
-    restart: unless-stopped
-    environment:
-      - N8N_BASIC_AUTH_ACTIVE=false
-      - N8N_HOST=localhost
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - GENERIC_TIMEZONE=Europe/Chisinau
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
-      - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-ai_news_digest}
-      - DB_POSTGRESDB_USER=${POSTGRES_USER:-postgres}
-      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
-    ports:
-      - "${N8N_PORT:-5678}:5678"
-    volumes:
-      - n8n_data:/home/node/.n8n
-    depends_on:
-      postgres:
-        condition: service_healthy
-      qdrant:
-        condition: service_healthy
-
 volumes:
   postgres_data:
   qdrant_data:
-  n8n_data:
   app_outputs:
