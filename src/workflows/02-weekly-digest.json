@@ -1,5 +1,5 @@
 {
-  "name": "02 — Weekly Digest (Current API)",
+  "name": "02 — Weekly Digest Generator",
   "nodes": [
     {
       "parameters": {},
@@ -7,7 +7,7 @@
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [220, 300]
+      "position": [200, 400]
     },
     {
       "parameters": {
@@ -19,39 +19,80 @@
       "name": "Weekly (Mon 9AM)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [220, 500]
+      "position": [200, 600]
     },
     {
       "parameters": {
-        "url": "https://ai-news-digest-production.up.railway.app/api/digest?generate=true&range=1w",
-        "options": {
-          "timeout": 600000
+        "operation": "executeQuery",
+        "query": "SELECT id, title, url, source, published_at, category, summary\nFROM articles\nWHERE published_at >= NOW() - INTERVAL '7 days'\nORDER BY published_at DESC;"
+      },
+      "id": "fetch-articles",
+      "name": "Fetch Last 7 Days Articles",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [500, 500],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "PostgreSQL"
         }
-      },
-      "id": "fetch-digest",
-      "name": "Generate Digest via API",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [520, 400]
+      }
     },
     {
       "parameters": {
-        "jsCode": "return [{\n  json: {\n    message: `Digest generated. Articles: ${$json.articleCount ?? 0}`,\n    articleCount: $json.articleCount ?? 0,\n    markdown: $json.markdown || '',\n    timestamp: new Date().toISOString()\n  }\n}];"
+        "jsCode": "// Replicate weeklyDigest.js generateMarkdown() logic\nconst articles = $input.all().map(i => i.json);\n\nfunction formatDate(date) {\n  return new Date(date).toLocaleDateString('en-US', {\n    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'\n  });\n}\n\nfunction formatDateShort(date) {\n  return new Date(date).toLocaleDateString('en-US', {\n    month: 'short', day: 'numeric', year: 'numeric'\n  });\n}\n\nconst endDate = new Date();\nconst startDate = new Date();\nstartDate.setDate(startDate.getDate() - 7);\n\nconst lines = [];\n\n// Header\nlines.push('# \\u{1F4F0} AI News Weekly Digest');\nlines.push('');\nlines.push(`**${formatDate(startDate)} \\u2014 ${formatDate(endDate)}**`);\nlines.push('');\n\nconst uniqueSources = new Set(articles.map(a => a.source));\nlines.push(`> ${articles.length} articles from ${uniqueSources.size} sources`);\nlines.push('');\nlines.push('---');\nlines.push('');\n\nif (articles.length === 0) {\n  lines.push('_No articles found for this period._');\n} else {\n  // Group by category\n  const grouped = {};\n  for (const article of articles) {\n    const cat = article.category || 'general';\n    if (!grouped[cat]) grouped[cat] = [];\n    grouped[cat].push(article);\n  }\n\n  // Sort categories by article count descending\n  const sortedCategories = Object.entries(grouped).sort(\n    (a, b) => b[1].length - a[1].length\n  );\n\n  for (const [category, catArticles] of sortedCategories) {\n    const displayCat = category.charAt(0).toUpperCase() + category.slice(1);\n    lines.push(`## ${displayCat} (${catArticles.length})`);\n    lines.push('');\n\n    // Sort by published date descending within category\n    catArticles.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));\n\n    for (const article of catArticles) {\n      const date = article.published_at ? formatDateShort(article.published_at) : 'Date N/A';\n      const summary = article.summary\n        ? article.summary.slice(0, 200) + (article.summary.length > 200 ? '...' : '')\n        : '_No summary available._';\n\n      lines.push(`### [${article.title}](${article.url})`);\n      lines.push('');\n      lines.push(`\\u{1F4C5} ${date} \\u00B7 \\u{1F4E1} ${article.source}`);\n      lines.push('');\n      lines.push(summary);\n      lines.push('');\n    }\n\n    lines.push('---');\n    lines.push('');\n  }\n}\n\n// Footer\nlines.push(`_Generated on ${formatDate(new Date())} by AI News Digest._`);\n\nconst markdown = lines.join('\\n');\n\nreturn [{\n  json: {\n    markdown,\n    articleCount: articles.length,\n    sourceCount: new Set(articles.map(a => a.source)).size,\n    categoryCount: new Set(articles.map(a => a.category || 'general')).size,\n    period: `${formatDateShort(startDate)} - ${formatDateShort(endDate)}`,\n    timestamp: new Date().toISOString()\n  }\n}];"
       },
-      "id": "summary",
+      "id": "generate-markdown",
+      "name": "Generate Markdown Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 500]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/outputs/weekly-digest-1w-{{ new Date().toISOString().slice(0, 10) }}.md",
+        "fileContent": "={{ $json.markdown }}"
+      },
+      "id": "write-file",
+      "name": "Write Digest File",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [1100, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Generate Markdown Digest').first().json;\n\nreturn [{\n  json: {\n    message: `Weekly digest generated. ${data.articleCount} articles across ${data.categoryCount} categories from ${data.sourceCount} sources.`,\n    articleCount: data.articleCount,\n    period: data.period,\n    markdown: data.markdown,\n    timestamp: data.timestamp\n  }\n}];"
+      },
+      "id": "digest-summary",
       "name": "Digest Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [780, 400]
+      "position": [1400, 500]
     }
   ],
   "connections": {
-    "Manual Trigger": { "main": [[{ "node": "Generate Digest via API", "type": "main", "index": 0 }]] },
-    "Weekly (Mon 9AM)": { "main": [[{ "node": "Generate Digest via API", "type": "main", "index": 0 }]] },
-    "Generate Digest via API": { "main": [[{ "node": "Digest Summary", "type": "main", "index": 0 }]] }
+    "Manual Trigger": {
+      "main": [[{ "node": "Fetch Last 7 Days Articles", "type": "main", "index": 0 }]]
+    },
+    "Weekly (Mon 9AM)": {
+      "main": [[{ "node": "Fetch Last 7 Days Articles", "type": "main", "index": 0 }]]
+    },
+    "Fetch Last 7 Days Articles": {
+      "main": [[{ "node": "Generate Markdown Digest", "type": "main", "index": 0 }]]
+    },
+    "Generate Markdown Digest": {
+      "main": [[{ "node": "Write Digest File", "type": "main", "index": 0 }]]
+    },
+    "Write Digest File": {
+      "main": [[{ "node": "Digest Summary", "type": "main", "index": 0 }]]
+    }
   },
   "settings": {
     "executionOrder": "v1"
   },
-  "tags": [{ "name": "ai-news-digest" }]
+  "tags": [{ "name": "ai-news-digest" }],
+  "meta": {
+    "notes": "## Weekly Digest Generator (Native n8n)\n\nReplicates `src/services/weeklyDigest.js` entirely inside n8n.\n\n### Pipeline:\n1. Triggers every Monday at 9AM (or manually)\n2. Queries PostgreSQL for articles from last 7 days\n3. Groups articles by category, sorts by count\n4. Generates formatted Markdown digest with:\n   - Week range header\n   - Category sections with article counts\n   - Per article: linked title, date, source, summary\n5. Writes digest to file: outputs/weekly-digest-1w-YYYY-MM-DD.md\n6. Outputs summary with stats\n\n### Credentials to configure:\n- **PostgreSQL**: host=postgres, port=5432, db=ai_news_digest, user=postgres, pw=changeme"
+  }
 }

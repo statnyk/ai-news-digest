@@ -1,5 +1,5 @@
 {
-  "name": "01 — RSS Ingestion (Current App Pipeline)",
+  "name": "01 — RSS → Database Ingestion",
   "nodes": [
     {
       "parameters": {},
@@ -7,7 +7,7 @@
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [220, 280]
+      "position": [200, 400]
     },
     {
       "parameters": {
@@ -19,43 +19,191 @@
       "name": "Schedule (Every 6h)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [220, 460]
+      "position": [200, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RSS feed URLs — mirrors the app's .env RSS_FEEDS config\nconst feeds = [\n  'https://techcrunch.com/category/artificial-intelligence/feed/',\n  'https://feeds.arstechnica.com/arstechnica/technology-lab',\n  'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml'\n];\n\nreturn feeds.map(url => ({ json: { feedUrl: url } }));"
+      },
+      "id": "feed-list",
+      "name": "RSS Feed URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 500]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.feedUrl }}",
+        "options": {}
+      },
+      "id": "fetch-rss",
+      "name": "Fetch RSS Feed",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [740, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Source name mapping — same as rssIngestion.js SOURCE_MAP\nconst SOURCE_MAP = {\n  'techcrunch.com': 'TechCrunch',\n  'arstechnica.com': 'Ars Technica',\n  'theverge.com': 'The Verge',\n  'technologyreview.com': 'MIT Technology Review',\n  'venturebeat.com': 'VentureBeat'\n};\n\nfunction extractSourceName(url) {\n  for (const [domain, name] of Object.entries(SOURCE_MAP)) {\n    if (url.includes(domain)) return name;\n  }\n  try { return new URL(url).hostname; } catch { return 'Unknown'; }\n}\n\nfunction extractCategory(item) {\n  if (item.categories) {\n    const cats = typeof item.categories === 'string'\n      ? item.categories.split(',')\n      : Array.isArray(item.categories) ? item.categories : [];\n    if (cats.length > 0) {\n      const cat = typeof cats[0] === 'string' ? cats[0] : (cats[0].name || cats[0]._ || 'general');\n      return cat.toLowerCase().trim();\n    }\n  }\n  return 'ai';\n}\n\nfunction stripHtml(text) {\n  if (!text) return '';\n  return text.replace(/<[^>]*>/g, ' ').replace(/&[^;]+;/g, ' ').replace(/\\s+/g, ' ').trim();\n}\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const url = (data.link || data.guid || '').trim();\n  if (!url) continue;\n\n  const title = (data.title || 'Untitled').trim();\n  const source = extractSourceName(url);\n  const category = extractCategory(data);\n  const publishedAt = data.isoDate || data.pubDate || data.date || new Date().toISOString();\n\n  const content = stripHtml(\n    data['content:encoded'] || data.content || data.contentSnippet || data.summary || ''\n  );\n\n  let summary = stripHtml(\n    data.contentSnippet || data.summary || ''\n  ).slice(0, 500);\n\n  const needsSummary = (!summary || summary.length <= 50) && content && content.length >= 100;\n\n  results.push({\n    json: {\n      title,\n      url,\n      source,\n      published_at: publishedAt,\n      category,\n      summary: summary || null,\n      content: content || null,\n      needs_summary: needsSummary\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "normalize-items",
+      "name": "Normalize RSS Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-needs-summary",
+              "leftValue": "={{ $json.needs_summary }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-needs-summary",
+      "name": "Needs LLM Summary?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1260, 500]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://ai-news-digest-production.up.railway.app/api/pipeline",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\"range\":\"1w\"}",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.3,\n  \"max_tokens\": 200,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a concise news summarizer. Summarize the following article in 1-2 sentences. Output only the summary, nothing else.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.content.substring(0, 3000)) }}\n    }\n  ]\n}",
         "options": {
-          "timeout": 600000
+          "timeout": 30000
         }
       },
-      "id": "run-pipeline",
-      "name": "Run Pipeline API",
+      "id": "generate-summary",
+      "name": "Generate LLM Summary",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [520, 370]
+      "position": [1520, 380],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "const result = $json;\n\nreturn [{\n  json: {\n    message: `Pipeline finished. Ingested: ${result.ingested ?? 0}, Indexed chunks: ${result.indexed ?? 0}, Digest articles: ${result.digest?.articleCount ?? 0}`,\n    ingested: result.ingested ?? 0,\n    indexed: result.indexed ?? 0,\n    digestArticleCount: result.digest?.articleCount ?? 0,\n    stepErrors: result.stepErrors || [],\n    timestamp: new Date().toISOString(),\n    raw: result\n  }\n}];"
+        "jsCode": "// Merge the LLM-generated summary back into the article item\nconst llmResponse = $json;\nconst article = $('Needs LLM Summary?').first().json;\n\nconst generatedSummary = llmResponse.choices?.[0]?.message?.content || article.summary;\n\nreturn [{\n  json: {\n    ...article,\n    summary: generatedSummary.trim(),\n    needs_summary: false\n  }\n}];"
       },
-      "id": "summary",
-      "name": "Pipeline Summary",
+      "id": "merge-summary",
+      "name": "Attach LLM Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [780, 370]
+      "position": [1780, 380]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "merge-articles",
+      "name": "Merge All Articles",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [2040, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO articles (title, url, source, published_at, category, summary, content)\nVALUES ('{{ $json.title.replace(/'/g, \"''\") }}', '{{ $json.url.replace(/'/g, \"''\") }}', '{{ $json.source.replace(/'/g, \"''\") }}', '{{ $json.published_at }}', '{{ $json.category.replace(/'/g, \"''\") }}', '{{ ($json.summary || '').replace(/'/g, \"''\") }}', '{{ ($json.content || '').substring(0, 50000).replace(/'/g, \"''\") }}')\nON CONFLICT (url) DO NOTHING\nRETURNING id, title;"
+      },
+      "id": "insert-article",
+      "name": "Insert into PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2300, 500],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet inserted = 0;\nlet skipped = 0;\nlet errors = 0;\n\nfor (const item of items) {\n  if (item.json.error) {\n    errors++;\n  } else if (item.json.id) {\n    inserted++;\n  } else {\n    skipped++;\n  }\n}\n\nreturn [{\n  json: {\n    message: `RSS Ingestion complete. Inserted: ${inserted}, Skipped (duplicates): ${skipped}, Errors: ${errors}`,\n    inserted,\n    skipped,\n    errors,\n    total: items.length,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "ingestion-summary",
+      "name": "Ingestion Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2560, 500]
     }
   ],
   "connections": {
-    "Manual Trigger": { "main": [[{ "node": "Run Pipeline API", "type": "main", "index": 0 }]] },
-    "Schedule (Every 6h)": { "main": [[{ "node": "Run Pipeline API", "type": "main", "index": 0 }]] },
-    "Run Pipeline API": { "main": [[{ "node": "Pipeline Summary", "type": "main", "index": 0 }]] }
+    "Manual Trigger": {
+      "main": [[{ "node": "RSS Feed URLs", "type": "main", "index": 0 }]]
+    },
+    "Schedule (Every 6h)": {
+      "main": [[{ "node": "RSS Feed URLs", "type": "main", "index": 0 }]]
+    },
+    "RSS Feed URLs": {
+      "main": [[{ "node": "Fetch RSS Feed", "type": "main", "index": 0 }]]
+    },
+    "Fetch RSS Feed": {
+      "main": [[{ "node": "Normalize RSS Items", "type": "main", "index": 0 }]]
+    },
+    "Normalize RSS Items": {
+      "main": [[{ "node": "Needs LLM Summary?", "type": "main", "index": 0 }]]
+    },
+    "Needs LLM Summary?": {
+      "main": [
+        [{ "node": "Generate LLM Summary", "type": "main", "index": 0 }],
+        [{ "node": "Merge All Articles", "type": "main", "index": 1 }]
+      ]
+    },
+    "Generate LLM Summary": {
+      "main": [[{ "node": "Attach LLM Summary", "type": "main", "index": 0 }]]
+    },
+    "Attach LLM Summary": {
+      "main": [[{ "node": "Merge All Articles", "type": "main", "index": 0 }]]
+    },
+    "Merge All Articles": {
+      "main": [[{ "node": "Insert into PostgreSQL", "type": "main", "index": 0 }]]
+    },
+    "Insert into PostgreSQL": {
+      "main": [[{ "node": "Ingestion Summary", "type": "main", "index": 0 }]]
+    }
   },
   "settings": {
     "executionOrder": "v1"
   },
-  "tags": [{ "name": "ai-news-digest" }]
+  "tags": [{ "name": "ai-news-digest" }],
+  "meta": {
+    "notes": "## RSS → Database Ingestion (Native n8n)\n\nReplicates `src/services/rssIngestion.js` entirely inside n8n.\n\n### Pipeline:\n1. Triggers every 6h (or manually)\n2. Iterates 3 RSS feeds (TechCrunch, Ars Technica, The Verge)\n3. Fetches each feed via n8n RSS Feed Read node\n4. Normalizes: strips HTML, extracts categories, maps source names\n5. Routes articles needing summaries to OpenAI gpt-4o-mini\n6. Merges all articles back together\n7. Inserts into PostgreSQL with ON CONFLICT (url) DO NOTHING dedup\n8. Outputs ingestion summary stats\n\n### Credentials to configure:\n- **PostgreSQL**: host=postgres, port=5432, db=ai_news_digest, user=postgres, pw=changeme\n- **OpenAI API**: your API key (for LLM summary enrichment)"
+  }
 }

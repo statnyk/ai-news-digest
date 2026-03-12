@@ -1,5 +1,5 @@
 {
-  "name": "03 — Vector Indexing (Current App Pipeline)",
+  "name": "03 — Vector Indexing (Qdrant)",
   "nodes": [
     {
       "parameters": {},
@@ -7,7 +7,7 @@
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [220, 300]
+      "position": [200, 400]
     },
     {
       "parameters": {
@@ -19,43 +19,231 @@
       "name": "Schedule (Every 2h)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [220, 500]
+      "position": [200, 600]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.QDRANT_URL || 'http://qdrant:6333' }}/collections/{{ $env.QDRANT_COLLECTION || 'articles' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"vectors\": {\n    \"size\": 1536,\n    \"distance\": \"Cosine\"\n  }\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "ensure-collection",
+      "name": "Ensure Qdrant Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 500],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title, url, source, category, published_at, summary, content\nFROM articles\nWHERE indexed_at IS NULL\nORDER BY published_at DESC;"
+      },
+      "id": "fetch-unindexed",
+      "name": "Fetch Unindexed Articles",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [800, 500],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Replicate vectorIndexing.js: chunk text + prepare embedding requests\n// Uses sentence-aware chunking identical to utils/chunker.js\nconst CHUNK_SIZE = 500;\nconst CHUNK_OVERLAP = 50;\nconst BATCH_SIZE = 20;\n\nfunction chunkText(text) {\n  if (!text || text.trim().length === 0) return [];\n  const sentences = text.match(/[^.!?\\n]+[.!?\\n]*/g) || [text];\n  const chunks = [];\n  let currentChunk = '';\n\n  for (const sentence of sentences) {\n    const trimmed = sentence.trim();\n    if (!trimmed) continue;\n\n    if (currentChunk.length + trimmed.length > CHUNK_SIZE && currentChunk.length > 0) {\n      chunks.push(currentChunk.trim());\n      if (CHUNK_OVERLAP > 0) {\n        const overlapText = currentChunk.slice(-CHUNK_OVERLAP);\n        currentChunk = overlapText + ' ' + trimmed;\n      } else {\n        currentChunk = trimmed;\n      }\n    } else {\n      currentChunk += (currentChunk ? ' ' : '') + trimmed;\n    }\n  }\n\n  if (currentChunk.trim().length > 0) {\n    chunks.push(currentChunk.trim());\n  }\n\n  return chunks;\n}\n\nconst articles = $input.all().map(i => i.json);\nconst allBatches = [];\n\nfor (const article of articles) {\n  const textToChunk = article.content || article.summary || '';\n  if (textToChunk.length < 50) {\n    // Still mark as indexed later, but skip chunking\n    allBatches.push({\n      json: {\n        article_id: article.id,\n        skip: true,\n        chunks: [],\n        texts_for_embedding: [],\n        points_metadata: []\n      }\n    });\n    continue;\n  }\n\n  const chunks = chunkText(textToChunk);\n\n  // Prepend title to each chunk for better embedding context\n  const textsForEmbedding = chunks.map(chunk => `${article.title}\\n\\n${chunk}`);\n\n  // Build metadata for each chunk\n  const pointsMetadata = chunks.map((chunk, idx) => ({\n    id: article.id * 10000 + idx,\n    chunk_index: idx,\n    chunk_text: chunk,\n    title: article.title,\n    source: article.source,\n    category: article.category,\n    published_at: article.published_at ? new Date(article.published_at).toISOString() : null,\n    url: article.url,\n    article_id: article.id\n  }));\n\n  // Split into batches of BATCH_SIZE for embedding API\n  for (let i = 0; i < textsForEmbedding.length; i += BATCH_SIZE) {\n    allBatches.push({\n      json: {\n        article_id: article.id,\n        skip: false,\n        texts_for_embedding: textsForEmbedding.slice(i, i + BATCH_SIZE),\n        points_metadata: pointsMetadata.slice(i, i + BATCH_SIZE)\n      }\n    });\n  }\n}\n\nif (allBatches.length === 0) {\n  return [{ json: { message: 'No articles to index', skip_all: true } }];\n}\n\nreturn allBatches;"
+      },
+      "id": "chunk-articles",
+      "name": "Chunk Articles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-skip",
+              "leftValue": "={{ $json.skip || $json.skip_all || false }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "has-chunks",
+      "name": "Has Chunks to Embed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1380, 500]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://ai-news-digest-production.up.railway.app/api/pipeline",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\"range\":\"1d\"}",
+        "jsonBody": "={\n  \"model\": \"text-embedding-3-small\",\n  \"input\": {{ JSON.stringify($json.texts_for_embedding) }}\n}",
         "options": {
-          "timeout": 600000
+          "timeout": 60000
         }
       },
-      "id": "run-pipeline",
-      "name": "Run Pipeline API",
+      "id": "generate-embeddings",
+      "name": "Generate Embeddings (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [520, 400]
+      "position": [1660, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "const result = $json;\n\nreturn [{\n  json: {\n    message: `Pipeline finished. Indexed chunks: ${result.indexed ?? 0}`,\n    indexedChunks: result.indexed ?? 0,\n    ingested: result.ingested ?? 0,\n    digestArticleCount: result.digest?.articleCount ?? 0,\n    stepErrors: result.stepErrors || [],\n    note: 'Current app exposes indexing through /api/pipeline.',\n    timestamp: new Date().toISOString(),\n    raw: result\n  }\n}];"
+        "jsCode": "// Build Qdrant upsert payload from embeddings + metadata\nconst embeddingResponse = $json;\nconst batchData = $('Has Chunks to Embed?').first().json;\n\nconst vectors = embeddingResponse.data.map(d => d.embedding);\nconst points = vectors.map((vector, j) => {\n  const meta = batchData.points_metadata[j];\n  return {\n    id: meta.id,\n    vector: vector,\n    payload: {\n      article_id: meta.article_id,\n      chunk_index: meta.chunk_index,\n      chunk_text: meta.chunk_text,\n      title: meta.title,\n      source: meta.source,\n      category: meta.category,\n      published_at: meta.published_at,\n      url: meta.url\n    }\n  };\n});\n\nreturn [{\n  json: {\n    article_id: batchData.article_id,\n    points,\n    chunk_count: points.length\n  }\n}];"
       },
-      "id": "summary",
+      "id": "build-points",
+      "name": "Build Qdrant Points",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1940, 400]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.QDRANT_URL || 'http://qdrant:6333' }}/collections/{{ $env.QDRANT_COLLECTION || 'articles' }}/points",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"points\": {{ JSON.stringify($json.points) }}\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "upsert-qdrant",
+      "name": "Upsert to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE articles SET indexed_at = NOW() WHERE id = {{ $json.article_id }};"
+      },
+      "id": "mark-indexed",
+      "name": "Mark Article Indexed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2500, 400],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE articles SET indexed_at = NOW() WHERE id = {{ $json.article_id }};"
+      },
+      "id": "mark-skipped-indexed",
+      "name": "Mark Skipped as Indexed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1660, 620],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect all results and produce summary\nconst items = $input.all();\nlet totalChunks = 0;\nconst articleIds = new Set();\n\nfor (const item of items) {\n  if (item.json.chunk_count) {\n    totalChunks += item.json.chunk_count;\n  }\n  if (item.json.article_id) {\n    articleIds.add(item.json.article_id);\n  }\n}\n\nreturn [{\n  json: {\n    message: `Vector indexing complete. Articles indexed: ${articleIds.size}, Total chunks: ${totalChunks}`,\n    articlesIndexed: articleIds.size,\n    totalChunks,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "indexing-summary",
       "name": "Indexing Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [780, 400]
+      "position": [2780, 500]
     }
   ],
   "connections": {
-    "Manual Trigger": { "main": [[{ "node": "Run Pipeline API", "type": "main", "index": 0 }]] },
-    "Schedule (Every 2h)": { "main": [[{ "node": "Run Pipeline API", "type": "main", "index": 0 }]] },
-    "Run Pipeline API": { "main": [[{ "node": "Indexing Summary", "type": "main", "index": 0 }]] }
+    "Manual Trigger": {
+      "main": [[{ "node": "Ensure Qdrant Collection", "type": "main", "index": 0 }]]
+    },
+    "Schedule (Every 2h)": {
+      "main": [[{ "node": "Ensure Qdrant Collection", "type": "main", "index": 0 }]]
+    },
+    "Ensure Qdrant Collection": {
+      "main": [[{ "node": "Fetch Unindexed Articles", "type": "main", "index": 0 }]]
+    },
+    "Fetch Unindexed Articles": {
+      "main": [[{ "node": "Chunk Articles", "type": "main", "index": 0 }]]
+    },
+    "Chunk Articles": {
+      "main": [[{ "node": "Has Chunks to Embed?", "type": "main", "index": 0 }]]
+    },
+    "Has Chunks to Embed?": {
+      "main": [
+        [{ "node": "Generate Embeddings (OpenAI)", "type": "main", "index": 0 }],
+        [{ "node": "Mark Skipped as Indexed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Embeddings (OpenAI)": {
+      "main": [[{ "node": "Build Qdrant Points", "type": "main", "index": 0 }]]
+    },
+    "Build Qdrant Points": {
+      "main": [[{ "node": "Upsert to Qdrant", "type": "main", "index": 0 }]]
+    },
+    "Upsert to Qdrant": {
+      "main": [[{ "node": "Mark Article Indexed", "type": "main", "index": 0 }]]
+    },
+    "Mark Article Indexed": {
+      "main": [[{ "node": "Indexing Summary", "type": "main", "index": 0 }]]
+    },
+    "Mark Skipped as Indexed": {
+      "main": [[{ "node": "Indexing Summary", "type": "main", "index": 0 }]]
+    }
   },
   "settings": {
     "executionOrder": "v1"
   },
-  "tags": [{ "name": "ai-news-digest" }]
+  "tags": [{ "name": "ai-news-digest" }],
+  "meta": {
+    "notes": "## Vector Indexing — Qdrant (Native n8n)\n\nReplicates `src/services/vectorIndexing.js` entirely inside n8n.\n\n### Pipeline:\n1. Triggers every 2h (or manually)\n2. Ensures Qdrant collection exists (PUT, idempotent)\n3. Fetches unindexed articles (WHERE indexed_at IS NULL)\n4. Sentence-aware chunking (500 chars, 50 overlap) — same algorithm as utils/chunker.js\n5. Prepends article title to each chunk for embedding context\n6. Generates embeddings via OpenAI text-embedding-3-small (batches of 20)\n7. Upserts points to Qdrant with full metadata payload\n8. Marks articles as indexed in PostgreSQL (indexed_at = NOW())\n9. Outputs summary stats\n\n### Credentials to configure:\n- **PostgreSQL**: host=postgres, port=5432, db=ai_news_digest\n- **OpenAI API**: your API key (for embeddings)\n- **Qdrant**: URL via env var QDRANT_URL (default: http://qdrant:6333)"
+  }
 }
