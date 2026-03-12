@@ -36,6 +36,7 @@ services:
       retries: 5
 
   # ─── App (API + Frontend) ────────────────────────────────────
+  # Использует только базу приложения (POSTGRES_* → articles, topics). Не передавать DB_POSTGRESDB_*.
   app:
     image: ghcr.io/statnyk/ai-news-digest:latest
     build: .
@@ -45,6 +46,9 @@ services:
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-ai_news_digest}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       QDRANT_URL: http://qdrant:6333
       API_PORT: "3001"
     ports:
@@ -58,6 +62,7 @@ services:
         condition: service_healthy
 
   # ─── n8n Workflow Engine ─────────────────────────────────────
+  # Своя база (DB_POSTGRESDB_* → n8n). Не передавать POSTGRES_* сюда — App использует их для articles.
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
     container_name: ai-news-n8n
