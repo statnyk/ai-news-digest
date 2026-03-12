@@ -42,7 +42,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Normalize webhook body (topic + range) for digest query.\n// When triggered by Manual/Schedule there is no body → use defaults.\nconst item = $input.first();\nconst raw = item?.json || {};\nconst body = raw.body || raw;\nconst topicSlug = body.topic && String(body.topic).trim() || null;\nconst range = (body.range || '1w').toString().toLowerCase().trim();\nlet days = 7;\nif (range === '2w') days = 14;\nelse if (range === '1d') days = 1;\nelse if (range === '3d') days = 3;\nreturn [{ json: { days, topicSlug } }];"
+        "jsCode": "// Normalize webhook body (topic + range) for digest query.\n// When triggered by Manual/Schedule there is no body → use defaults.\n// Accept both topicSlug and topic for compatibility with different callers.\nconst item = $input.first();\nconst raw = item?.json || {};\nconst body = raw.body || raw;\nconst topicRaw = body.topicSlug ?? body.topic;\nconst topicSlug = topicRaw != null && String(topicRaw).trim() ? String(topicRaw).trim() : null;\nconst range = (body.range || '1w').toString().toLowerCase().trim();\nlet days = 7;\nif (range === '2w') days = 14;\nelse if (range === '1d') days = 1;\nelse if (range === '3d') days = 3;\nreturn [{ json: { days, topicSlug } }];"
       },
       "id": "normalize-digest-params",
       "name": "Normalize Digest Params",
