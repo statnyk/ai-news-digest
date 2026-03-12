@@ -44,6 +44,11 @@ const config = {
     days: parseInt(process.env.DIGEST_DAYS || "7", 10),
   },
 
+  // ─── n8n ──────────────────────────────────────────────────
+  n8n: {
+    chatWebhookUrl: process.env.N8N_CHAT_WEBHOOK_URL || "",
+  },
+
   // ─── RAG ──────────────────────────────────────────────────
   rag: {
     topK: parseInt(process.env.RAG_TOP_K || "5", 10),
