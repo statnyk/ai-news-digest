@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main, n8n, "claude/**"]
   pull_request:
-    branches: [main]
+    branches: [main, n8n]
 
 jobs:
   lint-and-build:
