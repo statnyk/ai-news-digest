@@ -2,6 +2,20 @@
 
 Use this when deploying the **n8n** branch to Railway so you can run the app and configure n8n workflows.
 
+## Automatic pipeline (push → GitHub Actions → Railway)
+
+On every **push to `n8n`**:
+
+1. **GitHub Actions** (workflow `n8n → Docker → Railway`) runs: **Test** → **Build Docker image** → **Push to GHCR** as `ghcr.io/statnyk/ai-news-digest:n8n-latest` → **Trigger Railway deploy** (if configured).
+2. **Railway** redeploys the app (from GitHub source or from the new image, depending on how the service is set up).
+
+To enable the “trigger Railway deploy” step:
+
+- In **Railway**: open your project → select the **App** service → **Settings** → **Deploy** → copy the **Deploy Hook** URL.
+- In **GitHub**: repo **Settings** → **Secrets and variables** → **Actions** → **New repository secret** → name `RAILWAY_DEPLOY_HOOK_URL`, value = the deploy hook URL.
+
+If you don’t add the secret, the workflow still runs tests and pushes the Docker image; it just skips calling Railway.
+
 ## 1. Create a Railway project for the n8n branch
 
 - New project → Deploy from GitHub repo → **statnyk/ai-news-digest**
