@@ -72,5 +72,6 @@ If you deploy n8n as a service in the same project:
 
 - Deploy the app; health check: `/api/health`
 - Configure workflows in **n8n Cloud** (statnyk.app.n8n.cloud) and point webhooks to `/chat`, `/digest`, `/pipeline` as in the repo.
+- **Digest shows "0 articles"?** The digest workflow must use the **same PostgreSQL** as your app (`articles`, `topics`, `article_topics`). In n8n, set the digest workflow’s Postgres credential to that DB and re-import `src/workflows/02-weekly-digest.json` (it now uses topic/range from the webhook).
 
 For “migrations failed” on n8n, see [n8n-production-database.md](n8n-production-database.md).
