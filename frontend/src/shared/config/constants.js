@@ -1,4 +1,4 @@
-export const API_BASE = import.meta.env.VITE_API_URL || "";
+export const API_BASE = import.meta.env.N8N_WEBHOOK_BASE_URL || "";
 
 export const DIGEST_RANGES = [
   { value: "5m", label: "Last 5 minutes" },

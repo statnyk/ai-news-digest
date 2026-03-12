@@ -23,6 +23,12 @@ function closeServer(server) {
   return new Promise((resolve) => server.close(resolve));
 }
 
+function withN8nBase(url, fn) {
+  const original = config.n8n.webhookBaseUrl;
+  config.n8n.webhookBaseUrl = url;
+  return fn().finally(() => { config.n8n.webhookBaseUrl = original; });
+}
+
 // ─── Validation (no n8n involved) ─────────────────────────────
 
 test("handleChatRequest rejects empty payload", async () => {
@@ -37,26 +43,23 @@ test("handleChatRequest rejects whitespace-only message", async () => {
 
 // ─── n8n webhook forwarding ───────────────────────────────────
 
-test("forwards question to n8n webhook and returns answer", async () => {
-  const { server, url } = await createMockN8nServer((_req, res, body) => {
-    assert.equal(body.chatInput, "What is AI?");
+test("forwards question to n8n /chat and returns answer", async () => {
+  const { server, url } = await createMockN8nServer((req, res, body) => {
+    assert.ok(req.url.endsWith("/chat"));
+    assert.equal(body.message, "What is AI?");
     assert.ok(body.sessionId);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ output: "AI is artificial intelligence." }));
   });
 
-  const original = config.n8n.chatWebhookUrl;
-  config.n8n.chatWebhookUrl = url;
-
-  try {
+  await withN8nBase(url, async () => {
     const result = await handleChatRequest({ message: "What is AI?" });
     assert.equal(result.answer, "AI is artificial intelligence.");
     assert.equal(result.question, "What is AI?");
     assert.deepEqual(result.sources, []);
-  } finally {
-    config.n8n.chatWebhookUrl = original;
-    await closeServer(server);
-  }
+  });
+
+  await closeServer(server);
 });
 
 test("passes sessionId from request body to n8n webhook", async () => {
@@ -67,16 +70,12 @@ test("passes sessionId from request body to n8n webhook", async () => {
     res.end(JSON.stringify({ output: "ok" }));
   });
 
-  const original = config.n8n.chatWebhookUrl;
-  config.n8n.chatWebhookUrl = url;
-
-  try {
+  await withN8nBase(url, async () => {
     await handleChatRequest({ message: "hi", sessionId: "session-42" });
     assert.equal(receivedBody.sessionId, "session-42");
-  } finally {
-    config.n8n.chatWebhookUrl = original;
-    await closeServer(server);
-  }
+  });
+
+  await closeServer(server);
 });
 
 test("uses default sessionId when none provided", async () => {
@@ -87,16 +86,12 @@ test("uses default sessionId when none provided", async () => {
     res.end(JSON.stringify({ output: "ok" }));
   });
 
-  const original = config.n8n.chatWebhookUrl;
-  config.n8n.chatWebhookUrl = url;
-
-  try {
+  await withN8nBase(url, async () => {
     await handleChatRequest({ message: "hi" });
     assert.equal(receivedBody.sessionId, "default");
-  } finally {
-    config.n8n.chatWebhookUrl = original;
-    await closeServer(server);
-  }
+  });
+
+  await closeServer(server);
 });
 
 test("handles n8n response with 'text' field", async () => {
@@ -105,16 +100,12 @@ test("handles n8n response with 'text' field", async () => {
     res.end(JSON.stringify({ text: "response via text field" }));
   });
 
-  const original = config.n8n.chatWebhookUrl;
-  config.n8n.chatWebhookUrl = url;
-
-  try {
+  await withN8nBase(url, async () => {
     const result = await handleChatRequest({ message: "test" });
     assert.equal(result.answer, "response via text field");
-  } finally {
-    config.n8n.chatWebhookUrl = original;
-    await closeServer(server);
-  }
+  });
+
+  await closeServer(server);
 });
 
 test("handles n8n response with 'response' field", async () => {
@@ -123,16 +114,12 @@ test("handles n8n response with 'response' field", async () => {
     res.end(JSON.stringify({ response: "response via response field" }));
   });
 
-  const original = config.n8n.chatWebhookUrl;
-  config.n8n.chatWebhookUrl = url;
-
-  try {
+  await withN8nBase(url, async () => {
     const result = await handleChatRequest({ message: "test" });
     assert.equal(result.answer, "response via response field");
-  } finally {
-    config.n8n.chatWebhookUrl = original;
-    await closeServer(server);
-  }
+  });
+
+  await closeServer(server);
 });
 
 test("throws on n8n webhook HTTP error", async () => {
@@ -141,10 +128,7 @@ test("throws on n8n webhook HTTP error", async () => {
     res.end("Internal Server Error");
   });
 
-  const original = config.n8n.chatWebhookUrl;
-  config.n8n.chatWebhookUrl = url;
-
-  try {
+  await withN8nBase(url, async () => {
     await assert.rejects(
       () => handleChatRequest({ message: "test" }),
       (err) => {
@@ -152,10 +136,9 @@ test("throws on n8n webhook HTTP error", async () => {
         return true;
       },
     );
-  } finally {
-    config.n8n.chatWebhookUrl = original;
-    await closeServer(server);
-  }
+  });
+
+  await closeServer(server);
 });
 
 test("sends POST with correct Content-Type header", async () => {
@@ -166,33 +149,24 @@ test("sends POST with correct Content-Type header", async () => {
     res.end(JSON.stringify({ output: "ok" }));
   });
 
-  const original = config.n8n.chatWebhookUrl;
-  config.n8n.chatWebhookUrl = url;
-
-  try {
+  await withN8nBase(url, async () => {
     await handleChatRequest({ message: "hello" });
     assert.equal(receivedHeaders["content-type"], "application/json");
-  } finally {
-    config.n8n.chatWebhookUrl = original;
-    await closeServer(server);
-  }
+  });
+
+  await closeServer(server);
 });
 
 // ─── Fallback to local RAG ───────────────────────────────────
 
 test("falls back to local answerQuestion when webhook URL is empty", async () => {
-  const original = config.n8n.chatWebhookUrl;
-  config.n8n.chatWebhookUrl = "";
-
-  try {
-    const result = await handleChatRequest({ message: "test" });
-    // If local RAG services are running, we get a valid answer;
-    // if not, an error is thrown — either way it must NOT be an n8n error
-    assert.ok(result.answer || result.error, "Should return answer or error");
-    assert.ok(!result.error?.includes("n8n webhook"), "Should not be an n8n error");
-  } catch (err) {
-    assert.ok(!err.message.includes("n8n webhook"), "Should not be an n8n error");
-  } finally {
-    config.n8n.chatWebhookUrl = original;
-  }
+  await withN8nBase("", async () => {
+    try {
+      const result = await handleChatRequest({ message: "test" });
+      assert.ok(result.answer || result.error, "Should return answer or error");
+      assert.ok(!result.error?.includes("n8n webhook"), "Should not be an n8n error");
+    } catch (err) {
+      assert.ok(!err.message.includes("n8n webhook"), "Should not be an n8n error");
+    }
+  });
 });

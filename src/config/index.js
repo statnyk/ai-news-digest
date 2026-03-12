@@ -46,7 +46,7 @@ const config = {
 
   // ─── n8n ──────────────────────────────────────────────────
   n8n: {
-    chatWebhookUrl: process.env.N8N_CHAT_WEBHOOK_URL || "",
+    webhookBaseUrl: process.env.N8N_WEBHOOK_BASE_URL || "",
   },
 
   // ─── RAG ──────────────────────────────────────────────────

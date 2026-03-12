@@ -1,0 +1,123 @@
+{
+  "name": "05 — Full Pipeline (Webhook)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pipeline",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "pipeline-webhook",
+      "name": "Pipeline Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 400],
+      "webhookId": "pipeline"
+    },
+    {
+      "parameters": {
+        "jsCode": "// RSS feed URLs — mirrors the app's .env RSS_FEEDS config\nconst feeds = [\n  'https://techcrunch.com/category/artificial-intelligence/feed/',\n  'https://feeds.arstechnica.com/arstechnica/technology-lab',\n  'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml'\n];\n\nreturn feeds.map(url => ({ json: { feedUrl: url } }));"
+      },
+      "id": "feed-list",
+      "name": "RSS Feed URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.feedUrl }}",
+        "options": {}
+      },
+      "id": "fetch-rss",
+      "name": "Fetch RSS Feed",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [740, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const SOURCE_MAP = {\n  'techcrunch.com': 'TechCrunch',\n  'arstechnica.com': 'Ars Technica',\n  'theverge.com': 'The Verge'\n};\n\nfunction extractSourceName(url) {\n  for (const [domain, name] of Object.entries(SOURCE_MAP)) {\n    if (url.includes(domain)) return name;\n  }\n  try { return new URL(url).hostname; } catch { return 'Unknown'; }\n}\n\nfunction stripHtml(text) {\n  if (!text) return '';\n  return text.replace(/<[^>]*>/g, ' ').replace(/&[^;]+;/g, ' ').replace(/\\s+/g, ' ').trim();\n}\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const url = (data.link || data.guid || '').trim();\n  if (!url) continue;\n\n  results.push({\n    json: {\n      title: (data.title || 'Untitled').trim(),\n      url,\n      source: extractSourceName(url),\n      published_at: data.isoDate || data.pubDate || new Date().toISOString(),\n      category: 'ai',\n      summary: stripHtml(data.contentSnippet || data.summary || '').slice(0, 500) || null,\n      content: stripHtml(data['content:encoded'] || data.content || '') || null\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "normalize-items",
+      "name": "Normalize RSS Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO articles (title, url, source, published_at, category, summary, content)\nVALUES ('{{ $json.title.replace(/'/g, \"''\") }}', '{{ $json.url.replace(/'/g, \"''\") }}', '{{ $json.source.replace(/'/g, \"''\") }}', '{{ $json.published_at }}', '{{ $json.category.replace(/'/g, \"''\") }}', '{{ ($json.summary || '').replace(/'/g, \"''\") }}', '{{ ($json.content || '').substring(0, 50000).replace(/'/g, \"''\") }}')\nON CONFLICT (url) DO NOTHING\nRETURNING id, title;"
+      },
+      "id": "insert-article",
+      "name": "Insert into PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1260, 400],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title, url, source, published_at, category, summary\nFROM articles\nWHERE published_at >= NOW() - INTERVAL '7 days'\nORDER BY published_at DESC;",
+        "options": {}
+      },
+      "id": "fetch-articles",
+      "name": "Fetch Recent Articles",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1520, 400],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const articles = $input.all().map(i => i.json);\nconst lines = ['# AI News Digest', ''];\n\nif (articles.length === 0) {\n  lines.push('_No articles found._');\n} else {\n  for (const a of articles) {\n    const date = a.published_at ? new Date(a.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';\n    lines.push(`### [${a.title}](${a.url})`);\n    lines.push(`${date} · ${a.source}`);\n    if (a.summary) lines.push(a.summary.slice(0, 200));\n    lines.push('');\n  }\n}\n\nreturn [{\n  json: {\n    ingested: articles.length,\n    indexed: 0,\n    digest: {\n      articleCount: articles.length,\n      markdown: lines.join('\\n')\n    }\n  }\n}];"
+      },
+      "id": "build-response",
+      "name": "Build Pipeline Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 400]
+    }
+  ],
+  "connections": {
+    "Pipeline Webhook": {
+      "main": [[{ "node": "RSS Feed URLs", "type": "main", "index": 0 }]]
+    },
+    "RSS Feed URLs": {
+      "main": [[{ "node": "Fetch RSS Feed", "type": "main", "index": 0 }]]
+    },
+    "Fetch RSS Feed": {
+      "main": [[{ "node": "Normalize RSS Items", "type": "main", "index": 0 }]]
+    },
+    "Normalize RSS Items": {
+      "main": [[{ "node": "Insert into PostgreSQL", "type": "main", "index": 0 }]]
+    },
+    "Insert into PostgreSQL": {
+      "main": [[{ "node": "Fetch Recent Articles", "type": "main", "index": 0 }]]
+    },
+    "Fetch Recent Articles": {
+      "main": [[{ "node": "Build Pipeline Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{ "name": "ai-news-digest" }],
+  "meta": {
+    "notes": "## Full Pipeline (Webhook)\n\nCombines RSS ingestion + digest generation into a single webhook-triggered workflow.\nTriggered via POST /webhook/pipeline from the app's Refresh Data button.\n\nReturns: { ingested, indexed, digest: { articleCount, markdown } }"
+  }
+}

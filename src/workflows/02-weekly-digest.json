@@ -2,15 +2,26 @@
   "name": "02 — Weekly Digest Generator",
   "nodes": [
     {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "digest",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "digest-webhook",
+      "name": "Digest Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, -200],
+      "webhookId": "digest"
+    },
+    {
       "parameters": {},
       "id": "783ea015-8828-49f4-8d0e-f8f77f3451fe",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [
-        0,
-        0
-      ]
+      "position": [0, 0]
     },
     {
       "parameters": {
@@ -27,10 +38,7 @@
       "name": "Weekly (Mon 9AM)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [
-        0,
-        208
-      ]
+      "position": [0, 208]
     },
     {
       "parameters": {
@@ -99,6 +107,17 @@
   ],
   "pinData": {},
   "connections": {
+    "Digest Webhook": {
+      "main": [
+        [
+          {
+            "node": "Fetch Last 7 Days Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Manual Trigger": {
       "main": [
         [

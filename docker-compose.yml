@@ -43,6 +43,7 @@ services:
     env_file: .env
     environment:
       POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
       QDRANT_URL: http://qdrant:6333
       API_PORT: "3001"
     ports:

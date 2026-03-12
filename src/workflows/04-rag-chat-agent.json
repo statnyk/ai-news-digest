@@ -4,7 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "ai-news-chat",
+        "path": "chat",
         "responseMode": "lastNode",
         "options": {}
       },
@@ -13,11 +13,11 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [200, 400],
-      "webhookId": "ai-news-chat"
+      "webhookId": "chat"
     },
     {
       "parameters": {
-        "jsCode": "// Extract and normalize the user question from incoming webhook\nconst payload = $json.body || $json;\nconst message = (payload.message || payload.question || payload.text || '').trim();\nconst topicSlug = payload.topicSlug || null;\n\nif (!message) {\n  return [{\n    json: {\n      error: 'No question provided.',\n      answer: null,\n      sources: []\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    message,\n    topicSlug,\n    has_question: true\n  }\n}];"
+        "jsCode": "const payload = $json.body || $json;\nconst message = (payload.message || payload.question || payload.text || payload.chatInput || '').trim();\nconst topicSlug = payload.topicSlug || null;\n\nif (!message) {\n  return [{ json: { answer: 'No question provided.', question: '', sources: [] } }];\n}\n\n// Extract keywords for SQL search\nconst keywords = message\n  .toLowerCase()\n  .replace(/[^a-z0-9\\s]/g, '')\n  .split(/\\s+/)\n  .filter(w => w.length > 3)\n  .sort((a, b) => b.length - a.length)\n  .slice(0, 5);\n\nreturn [{ json: { message, topicSlug, keywords, has_question: true } }];"
       },
       "id": "normalize-input",
       "name": "Normalize Chat Input",
@@ -28,23 +28,13 @@
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "cond-has-question",
-              "leftValue": "={{ $json.has_question || false }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals",
-                "singleValue": true
-              }
-            }
-          ],
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [{
+            "id": "cond-has-question",
+            "leftValue": "={{ $json.has_question || false }}",
+            "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals", "singleValue": true }
+          }],
           "combinator": "and"
         }
       },
@@ -56,114 +46,14 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.openai.com/v1/embeddings",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openAiApi",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"text-embedding-3-small\",\n  \"input\": [{{ JSON.stringify($json.message) }}]\n}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "id": "embed-question",
-      "name": "Embed Question (OpenAI)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1020, 300],
-      "credentials": {
-        "openAiApi": {
-          "id": "OPENAI_CREDENTIAL_ID",
-          "name": "OpenAI API"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Extract the embedding vector from OpenAI response\nconst embedding = $json.data[0].embedding;\nconst question = $('Normalize Chat Input').first().json.message;\nconst topicSlug = $('Normalize Chat Input').first().json.topicSlug;\n\nreturn [{\n  json: {\n    vector: embedding,\n    question,\n    topicSlug\n  }\n}];"
-      },
-      "id": "extract-vector",
-      "name": "Extract Question Vector",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1300, 300]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.QDRANT_URL || 'http://qdrant:6333' }}/collections/{{ $env.QDRANT_COLLECTION || 'articles' }}/points/search",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"vector\": {{ JSON.stringify($json.vector) }},\n  \"limit\": 5,\n  \"score_threshold\": 0.7,\n  \"with_payload\": true\n}",
-        "options": {
-          "timeout": 15000
-        }
-      },
-      "id": "search-qdrant",
-      "name": "Search Qdrant (Vector)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1580, 300]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Hybrid search: check if vector results are sparse, supplement with keyword SQL fallback\n// Replicates features/chat/lib/hybridSearch.js logic\nconst vectorResponse = $json;\nconst questionData = $('Extract Question Vector').first().json;\nconst question = questionData.question;\nconst topicSlug = questionData.topicSlug;\n\nlet vectorResults = vectorResponse.result || [];\n\n// Deduplicate by article_id\nconst seen = new Set();\nconst uniqueChunks = [];\n\nfor (const chunk of vectorResults) {\n  const key = chunk.payload.article_id;\n  if (!seen.has(key)) {\n    seen.add(key);\n    uniqueChunks.push(chunk);\n  } else if (uniqueChunks.length < 10) {\n    uniqueChunks.push(chunk);\n  }\n}\n\n// Determine if we need keyword fallback\nconst needsKeywordFallback = uniqueChunks.length < 3;\n\n// Extract keywords for fallback search (longest words first, same as hybridSearch.js)\nconst keywords = question\n  .toLowerCase()\n  .replace(/[^a-z0-9\\s]/g, '')\n  .split(/\\s+/)\n  .filter(w => w.length > 2)\n  .sort((a, b) => b.length - a.length)\n  .slice(0, 5);\n\nreturn [{\n  json: {\n    vectorChunks: uniqueChunks,\n    needsKeywordFallback,\n    keywords,\n    question,\n    topicSlug,\n    existingArticleIds: Array.from(seen)\n  }\n}];"
-      },
-      "id": "analyze-results",
-      "name": "Analyze Vector Results",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1860, 300]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "cond-needs-fallback",
-              "leftValue": "={{ $json.needsKeywordFallback }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        }
-      },
-      "id": "needs-keyword-fallback",
-      "name": "Needs Keyword Fallback?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [2140, 300]
-    },
-    {
-      "parameters": {
         "operation": "executeQuery",
-        "query": "=SELECT id, title, url, source, category, published_at, summary, content\nFROM articles\nWHERE title ILIKE {{ \"'%\" + $json.keywords[0] + \"%'\" }}\n   OR content ILIKE {{ \"'%\" + $json.keywords[0] + \"%'\" }}\n   OR summary ILIKE {{ \"'%\" + $json.keywords[0] + \"%'\" }}\nORDER BY published_at DESC\nLIMIT 8;"
+        "query": "=SELECT id, title, url, source, category, published_at, summary, content\nFROM articles\nWHERE title ILIKE {{ \"'%\" + $json.keywords[0] + \"%'\" }}\n   OR summary ILIKE {{ \"'%\" + $json.keywords[0] + \"%'\" }}\n   OR content ILIKE {{ \"'%\" + $json.keywords[0] + \"%'\" }}\n{{ $json.keywords[1] ? \"   OR title ILIKE '%\" + $json.keywords[1] + \"%'\" : '' }}\n{{ $json.keywords[1] ? \"   OR summary ILIKE '%\" + $json.keywords[1] + \"%'\" : '' }}\nORDER BY published_at DESC\nLIMIT 8;"
       },
       "id": "keyword-search",
-      "name": "Keyword Search (PostgreSQL)",
+      "name": "Search Articles (PostgreSQL)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2420, 200],
+      "position": [1020, 300],
       "credentials": {
         "postgres": {
           "id": "POSTGRES_CREDENTIAL_ID",
@@ -174,44 +64,13 @@
     },
     {
       "parameters": {
-        "jsCode": "// Merge keyword search results with vector results, deduplicate by article_id\nconst keywordRows = $input.all().map(i => i.json);\nconst prevData = $('Needs Keyword Fallback?').first().json;\nconst vectorChunks = prevData.vectorChunks || [];\nconst existingIds = new Set(prevData.existingArticleIds || []);\nconst question = prevData.question;\n\n// Convert keyword results to chunk-like format (same as hybridSearch.js)\nconst dbChunks = keywordRows\n  .filter(row => row.id && !existingIds.has(row.id))\n  .map(row => ({\n    score: 0.5,\n    payload: {\n      article_id: row.id,\n      chunk_text: (row.content || row.summary || '').slice(0, 500),\n      title: row.title,\n      source: row.source,\n      category: row.category,\n      published_at: row.published_at ? new Date(row.published_at).toISOString() : null,\n      url: row.url\n    }\n  }));\n\nconst mergedChunks = [...vectorChunks, ...dbChunks];\n\nreturn [{\n  json: {\n    chunks: mergedChunks,\n    question\n  }\n}];"
-      },
-      "id": "merge-keyword-results",
-      "name": "Merge Keyword Results",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [2700, 200]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Pass through vector-only results when no keyword fallback needed\nconst prevData = $('Needs Keyword Fallback?').first().json;\n\nreturn [{\n  json: {\n    chunks: prevData.vectorChunks || [],\n    question: prevData.question\n  }\n}];"
-      },
-      "id": "pass-vector-only",
-      "name": "Use Vector Results Only",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [2420, 420]
-    },
-    {
-      "parameters": {
-        "mode": "chooseBranch",
-        "output": "empty"
-      },
-      "id": "merge-search",
-      "name": "Merge Search Paths",
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 3,
-      "position": [2980, 300]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Build the context string from retrieved chunks — replicates buildContext.js\nconst data = $input.first().json;\nconst chunks = data.chunks || [];\nconst question = data.question;\n\nlet context;\nif (chunks.length === 0) {\n  context = 'No relevant articles found in the database.';\n} else {\n  const contextParts = chunks.map((c, i) => {\n    const p = c.payload;\n    const date = p.published_at\n      ? new Date(p.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })\n      : 'Date N/A';\n    return `[Source ${i + 1}]\\nTitle: ${p.title}\\nSource: ${p.source}\\nDate: ${date}\\nURL: ${p.url}\\nCategory: ${p.category}\\nContent: ${p.chunk_text}`;\n  });\n  context = contextParts.join('\\n\\n---\\n\\n');\n}\n\n// Build sources array for the response\nconst sources = chunks.map(c => ({\n  title: c.payload.title,\n  url: c.payload.url,\n  source: c.payload.source,\n  score: c.score\n}));\n\n// Deduplicate sources by URL\nconst seenUrls = new Set();\nconst uniqueSources = sources.filter(s => {\n  if (seenUrls.has(s.url)) return false;\n  seenUrls.add(s.url);\n  return true;\n});\n\nreturn [{\n  json: {\n    context,\n    question,\n    sources: uniqueSources\n  }\n}];"
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst questionData = $('Normalize Chat Input').first().json;\nconst question = questionData.message;\n\nlet context;\nif (!rows.length || !rows[0].id) {\n  context = 'No relevant articles found in the database.';\n} else {\n  const parts = rows.filter(r => r.id).map((r, i) => {\n    const date = r.published_at\n      ? new Date(r.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })\n      : 'Date N/A';\n    const content = (r.content || r.summary || '').slice(0, 500);\n    return `[Source ${i + 1}]\\nTitle: ${r.title}\\nSource: ${r.source}\\nDate: ${date}\\nURL: ${r.url}\\nContent: ${content}`;\n  });\n  context = parts.join('\\n\\n---\\n\\n');\n}\n\nconst sources = rows.filter(r => r.id).map(r => ({\n  title: r.title, url: r.url, source: r.source, score: 0.5\n}));\n\nconst seen = new Set();\nconst uniqueSources = sources.filter(s => {\n  if (seen.has(s.url)) return false;\n  seen.add(s.url);\n  return true;\n});\n\nreturn [{ json: { context, question, sources: uniqueSources } }];"
       },
       "id": "build-context",
       "name": "Build RAG Context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3260, 300]
+      "position": [1300, 300]
     },
     {
       "parameters": {
@@ -221,25 +80,18 @@
         "nodeCredentialType": "openAiApi",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.2,\n  \"max_tokens\": 2000,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an AI News Research Assistant. Your role is to answer questions about recent AI and technology news based ONLY on the provided context.\\n\\nRULES:\\n1. ONLY use information from the provided context to answer questions.\\n2. If the context doesn't contain enough information, say so clearly.\\n3. ALWAYS cite your sources using the article URLs provided in the context.\\n4. Format citations as markdown links: [Article Title](URL)\\n5. Be concise but thorough. Summarize key points from multiple sources when relevant.\\n6. If asked about topics not covered in the context, say \\\"I don't have information about that in my current news database.\\\"\\n7. Include the date of the article when relevant to give the user a sense of recency.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify('Context (retrieved articles):\\n' + $json.context + '\\n\\n---\\n\\nUser Question: ' + $json.question + '\\n\\nPlease answer based on the context above. Include source citations with URLs.') }}\n    }\n  ]\n}",
-        "options": {
-          "timeout": 60000
-        }
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.2,\n  \"max_tokens\": 2000,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an AI News Research Assistant. Answer questions about recent AI and technology news based ONLY on the provided context. ALWAYS cite sources using markdown links [Title](URL). If the context doesn't have enough information, say so clearly.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify('Context (retrieved articles):\\n' + $json.context + '\\n\\n---\\n\\nUser Question: ' + $json.question + '\\n\\nPlease answer based on the context above. Include source citations with URLs.') }}\n    }\n  ]\n}",
+        "options": { "timeout": 60000 }
       },
       "id": "generate-answer",
       "name": "Generate RAG Answer (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3540, 300],
+      "position": [1580, 300],
       "credentials": {
         "openAiApi": {
           "id": "OPENAI_CREDENTIAL_ID",
@@ -249,17 +101,17 @@
     },
     {
       "parameters": {
-        "jsCode": "// Format the final response — matches the app's /api/chat output format\nconst llmResponse = $json;\nconst contextData = $('Build RAG Context').first().json;\n\nconst answer = llmResponse.choices?.[0]?.message?.content || 'No answer generated.';\n\nreturn [{\n  json: {\n    answer,\n    question: contextData.question,\n    sources: contextData.sources,\n    timestamp: new Date().toISOString()\n  }\n}];"
+        "jsCode": "const llmResponse = $json;\nconst contextData = $('Build RAG Context').first().json;\nconst answer = llmResponse.choices?.[0]?.message?.content || 'No answer generated.';\n\nreturn [{ json: { answer, question: contextData.question, sources: contextData.sources } }];"
       },
       "id": "format-response",
       "name": "Format Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3820, 300]
+      "position": [1860, 300]
     },
     {
       "parameters": {
-        "jsCode": "// Return error response for empty questions\nreturn [{\n  json: {\n    error: 'No question provided.',\n    answer: null,\n    sources: [],\n    timestamp: new Date().toISOString()\n  }\n}];"
+        "jsCode": "return [{ json: { answer: 'No question provided.', question: '', sources: [] } }];"
       },
       "id": "error-no-question",
       "name": "Error: No Question",
@@ -277,38 +129,11 @@
     },
     "Has Valid Question?": {
       "main": [
-        [{ "node": "Embed Question (OpenAI)", "type": "main", "index": 0 }],
+        [{ "node": "Search Articles (PostgreSQL)", "type": "main", "index": 0 }],
         [{ "node": "Error: No Question", "type": "main", "index": 0 }]
       ]
     },
-    "Embed Question (OpenAI)": {
-      "main": [[{ "node": "Extract Question Vector", "type": "main", "index": 0 }]]
-    },
-    "Extract Question Vector": {
-      "main": [[{ "node": "Search Qdrant (Vector)", "type": "main", "index": 0 }]]
-    },
-    "Search Qdrant (Vector)": {
-      "main": [[{ "node": "Analyze Vector Results", "type": "main", "index": 0 }]]
-    },
-    "Analyze Vector Results": {
-      "main": [[{ "node": "Needs Keyword Fallback?", "type": "main", "index": 0 }]]
-    },
-    "Needs Keyword Fallback?": {
-      "main": [
-        [{ "node": "Keyword Search (PostgreSQL)", "type": "main", "index": 0 }],
-        [{ "node": "Use Vector Results Only", "type": "main", "index": 0 }]
-      ]
-    },
-    "Keyword Search (PostgreSQL)": {
-      "main": [[{ "node": "Merge Keyword Results", "type": "main", "index": 0 }]]
-    },
-    "Merge Keyword Results": {
-      "main": [[{ "node": "Merge Search Paths", "type": "main", "index": 0 }]]
-    },
-    "Use Vector Results Only": {
-      "main": [[{ "node": "Merge Search Paths", "type": "main", "index": 1 }]]
-    },
-    "Merge Search Paths": {
+    "Search Articles (PostgreSQL)": {
       "main": [[{ "node": "Build RAG Context", "type": "main", "index": 0 }]]
     },
     "Build RAG Context": {
@@ -318,11 +143,9 @@
       "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]]
     }
   },
-  "settings": {
-    "executionOrder": "v1"
-  },
+  "settings": { "executionOrder": "v1" },
   "tags": [{ "name": "ai-news-digest" }],
   "meta": {
-    "notes": "## RAG Chat Agent (Native n8n)\n\nReplicates the full RAG pipeline from `src/features/chat/` inside n8n.\n\n### Pipeline:\n1. **Webhook** receives POST to /webhook/ai-news-chat with { message, topicSlug? }\n2. **Validates** input — returns error if no question\n3. **Embeds** the question via OpenAI text-embedding-3-small\n4. **Searches** Qdrant for top-5 similar chunks (score_threshold=0.7)\n5. **Analyzes** results — if <3 chunks found, triggers keyword fallback\n6. **Keyword fallback**: SQL ILIKE search on articles table (longest keywords first)\n7. **Merges** and deduplicates results from both search paths\n8. **Builds context** string with [Source N] format, titles, dates, URLs\n9. **Generates** grounded answer via OpenAI gpt-4o-mini with system prompt\n10. **Returns** { answer, question, sources[] } — same format as /api/chat\n\n### System Prompt:\nSame as systemPrompt.js — enforces grounded answers with mandatory source citations.\n\n### Credentials to configure:\n- **OpenAI API**: your API key (embeddings + chat completion)\n- **PostgreSQL**: host=postgres, port=5432, db=ai_news_digest (keyword fallback)\n- **Qdrant**: URL via env var QDRANT_URL (default: http://qdrant:6333)"
+    "notes": "## RAG Chat Agent (PostgreSQL-based)\n\nSimplified chat workflow that uses PostgreSQL keyword search instead of Qdrant vectors.\nWorks from n8n cloud without needing direct access to Qdrant.\n\n### Pipeline:\n1. Webhook receives POST to /webhook/chat with { message, topicSlug? }\n2. Validates input, extracts keywords\n3. Searches PostgreSQL articles via ILIKE keyword matching\n4. Builds context string with source citations\n5. Generates grounded answer via OpenAI gpt-4o-mini\n6. Returns { answer, question, sources[] }\n\n### Credentials to configure:\n- **OpenAI API**: your API key\n- **PostgreSQL**: your database connection"
   }
 }

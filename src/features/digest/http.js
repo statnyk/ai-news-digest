@@ -4,8 +4,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import config from "../../config/index.js";
 import { runDigest } from "../../services/weeklyDigest.js";
 import { log } from "../../utils/logger.js";
+import { isN8nEnabled, forwardToN8n } from "../../utils/n8nWebhook.js";
 
-// Serve the latest digest file from disk (avoids regenerating every time)
 function getLatestDigest(topicSlug = null, range = "1w") {
   const outputDir = resolve(config.digest.outputDir);
   const normalizedRange = typeof range === "string" ? range.trim().toLowerCase() : "1w";
@@ -30,10 +30,18 @@ function getLatestDigest(topicSlug = null, range = "1w") {
 export function registerDigestRoutes(app) {
   app.get("/api/digest", async (req, res) => {
     try {
-      const generate = req.query.generate === "true";
       const topicSlug = req.query.topic ? String(req.query.topic) : null;
       const range = req.query.range ? String(req.query.range) : "1w";
 
+      if (isN8nEnabled()) {
+        const data = await forwardToN8n("digest", { topic: topicSlug, range });
+        return res.json({
+          articleCount: data.articleCount ?? null,
+          markdown: data.markdown || data.output || data.text || JSON.stringify(data),
+        });
+      }
+
+      const generate = req.query.generate === "true";
       if (generate) {
         const result = await runDigest({ topicSlug, range });
         return res.json({
