@@ -1,3 +1,5 @@
+# Runs only on tag creation (v*) for release image, or on n8n branch for n8n-latest.
+# Main branch does not trigger Docker build; use a tag (e.g. v2026.04) to publish.
 name: Build & Push Docker Image
 
 on:

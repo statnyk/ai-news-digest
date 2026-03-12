@@ -1,10 +1,10 @@
-name: CI
+name: CI (n8n)
 
 on:
   push:
-    branches: [main, n8n, "claude/**"]
+    branches: [n8n]
   pull_request:
-    branches: [main, n8n]
+    branches: [n8n]
 
 jobs:
   lint-and-build:
