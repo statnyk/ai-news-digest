@@ -29,27 +29,22 @@ function getLatestDigest(topicSlug = null, range = "1w") {
 
 export function registerDigestRoutes(app) {
   app.get("/api/digest", async (req, res) => {
-    // #region agent log
-    try {
-      fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'digest/http.js:entry',message:'GET /api/digest',data:{topic:req.query?.topic,range:req.query?.range,isN8nEnabled:isN8nEnabled()},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-    } catch (_) {}
-    // #endregion
     try {
       const topicSlug = req.query.topic ? String(req.query.topic) : null;
       const range = req.query.range ? String(req.query.range) : "1w";
 
       if (isN8nEnabled()) {
-        const data = await forwardToN8n("digest", { topic: topicSlug, range });
+        const data = await forwardToN8n("digest", { topic: topicSlug, topicSlug, range });
         // #region agent log
-        try {
-          const keys = data && typeof data === 'object' ? Object.keys(data) : [];
-          const hasMarkdown = !!(data && (data.markdown ?? data.json?.markdown));
-          fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'digest/http.js:afterForward',message:'n8n digest response shape',data:{keys,hasMarkdown,firstKeySample:keys[0] && data[keys[0]] != null ? typeof data[keys[0]] : undefined},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-        } catch (_) {}
+        fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'digest/http.js:afterForward',message:'parsed n8n data',data:{type:typeof data,isArray:Array.isArray(data),keys:data&&typeof data==='object'?Object.keys(data):[],hasMarkdown:!!(data?.markdown),hasJsonMarkdown:!!(data?.json?.markdown),preview:JSON.stringify(data)?.slice(0,400)},timestamp:Date.now(),hypothesisId:'H1-H4'})}).catch(()=>{});
         // #endregion
+        // n8n responseMode lastNode may return [{json:{…}}] or {json:{…}}; normalize
+        const payload = Array.isArray(data) && data[0]?.json != null
+          ? data[0].json
+          : (data?.json ?? data);
         return res.json({
-          articleCount: data.articleCount ?? null,
-          markdown: data.markdown || data.output || data.text || JSON.stringify(data),
+          articleCount: payload?.articleCount ?? null,
+          markdown: payload?.markdown || payload?.output || payload?.text || JSON.stringify(payload),
         });
       }
 
@@ -74,9 +69,7 @@ export function registerDigestRoutes(app) {
       });
     } catch (err) {
       // #region agent log
-      try {
-        fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'digest/http.js:catch',message:'digest 500',data:{errMessage:err.message},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-      } catch (_) {}
+      fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'digest/http.js:catch',message:'digest route threw',data:{errMessage:err.message,errStack:err.stack?.slice(0,300)},timestamp:Date.now(),hypothesisId:'H2-H3'})}).catch(()=>{});
       // #endregion
       log("API", `Digest error: ${err.message}`);
       res.status(500).json({ error: "Failed to generate digest." });

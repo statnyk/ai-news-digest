@@ -21,14 +21,11 @@ export async function forwardToN8n(path, body) {
     body: JSON.stringify(body),
   });
 
+  const contentType = res.headers.get("content-type") || "";
   const text = await res.text();
+
   // #region agent log
-  try {
-    const parsed = (() => { try { return JSON.parse(text); } catch { return null; } })();
-    const keys = parsed && typeof parsed === 'object' ? Object.keys(parsed) : [];
-    const isArray = Array.isArray(parsed);
-    fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'n8nWebhook.js:afterFetch',message:'n8n response',data:{path,status:res.status,textLen:text?.length,isArray,keys},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  } catch (_) {}
+  fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'n8nWebhook.js:afterFetch',message:'n8n raw response',data:{path,status:res.status,contentType,textLen:text?.length,textPreview:text?.slice(0,500)},timestamp:Date.now(),hypothesisId:'H1-H3'})}).catch(()=>{});
   // #endregion
 
   if (!res.ok) {

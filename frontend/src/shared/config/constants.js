@@ -1,4 +1,5 @@
-export const API_BASE = import.meta.env.N8N_WEBHOOK_BASE_URL || "";
+// Frontend must call the Node API (which then forwards to n8n). Do not use N8N_WEBHOOK_BASE_URL here.
+export const API_BASE = import.meta.env.VITE_API_URL || "";
 
 export const DIGEST_RANGES = [
   { value: "5m", label: "Last 5 minutes" },
