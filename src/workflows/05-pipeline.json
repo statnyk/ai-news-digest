@@ -76,122 +76,11 @@
     },
     {
       "parameters": {
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "value": "articles",
-          "mode": "list",
-          "cachedResultName": "articles"
-        },
-        "columns": {
-          "mappingMode": "autoMapInputData",
-          "value": {
-            "id": 0
-          },
-          "matchingColumns": [
-            "id"
-          ],
-          "schema": [
-            {
-              "id": "id",
-              "displayName": "id",
-              "required": false,
-              "defaultMatch": true,
-              "display": true,
-              "type": "number",
-              "canBeUsedToMatch": true,
-              "removed": false
-            },
-            {
-              "id": "title",
-              "displayName": "title",
-              "required": true,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "url",
-              "displayName": "url",
-              "required": true,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "source",
-              "displayName": "source",
-              "required": true,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "published_at",
-              "displayName": "published_at",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "dateTime",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "category",
-              "displayName": "category",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "summary",
-              "displayName": "summary",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "content",
-              "displayName": "content",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "ingested_at",
-              "displayName": "ingested_at",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "dateTime",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "indexed_at",
-              "displayName": "indexed_at",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "dateTime",
-              "canBeUsedToMatch": true
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {}
+        "operation": "executeQuery",
+        "query": "INSERT INTO articles (title, url, source, published_at, category, summary, content)\nVALUES ($1, $2, $3, $4::timestamptz, $5, $6, $7)\nON CONFLICT (url) DO NOTHING\nRETURNING id, title;",
+        "options": {
+          "queryParameters": "={{ [$json.title, $json.url, $json.source, $json.published_at, $json.category, ($json.summary || ''), (($json.content || '').substring(0, 50000))] }}"
+        }
       },
       "id": "4963ce41-78a9-4e1b-9820-3ee954aa336a",
       "name": "Insert into PostgreSQL",
@@ -248,7 +137,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO article_topics (article_id, topic_id)\nVALUES ($1, $2)\nON CONFLICT (article_id, topic_id) DO NOTHING",
         "options": {
-          "queryReplacement": "={{ [$json.id, $(\"Normalize Pipeline Params\").first().json.topicId] }}"
+          "queryParameters": "={{ [$json.id, $('Normalize Pipeline Params').first().json.topicId] }}"
         }
       },
       "id": "cdae8010-f58e-4989-bee9-857f7505276b",
@@ -286,7 +175,7 @@
         "operation": "executeQuery",
         "query": "SELECT id, title, url, source, published_at, category, summary, content\nFROM articles\nWHERE published_at >= $1::timestamptz\nORDER BY published_at DESC;",
         "options": {
-          "queryReplacement": "={{ $(\"Normalize Pipeline Params\").first().json.rangeStart }}"
+          "queryParameters": "={{ [$('Normalize Pipeline Params').first().json.rangeStart] }}"
         }
       },
       "id": "72c8e9f2-4f1a-4496-95dc-645fc8af1694",
