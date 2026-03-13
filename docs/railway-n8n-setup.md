@@ -2,12 +2,16 @@
 
 Use this when deploying the **n8n** branch to Railway so you can run the app and configure n8n workflows.
 
-## Automatic pipeline (push → GitHub Actions → Railway)
+The deployed app is a single Docker image containing both the **Backend API** (Node.js / Express on port 3001) and the **built Frontend** (React / Vite, served as static files by the API). See the [Dockerfile](../Dockerfile) and [railway.json](../railway.json) for details.
+
+## Automatic pipeline (push -> GitHub Actions -> Railway)
 
 On every **push to `n8n`**:
 
-1. **GitHub Actions** (workflow `n8n → Docker → Railway`) runs: **Test** → **Build Docker image** → **Push to GHCR** as `ghcr.io/statnyk/ai-news-digest:n8n-latest` → **Trigger Railway deploy** (if configured).
-2. **Railway** redeploys the app (from GitHub source or from the new image, depending on how the service is set up).
+1. **GitHub Actions** (workflow `.github/workflows/n8n-railway.yml`: `n8n -> Docker -> Railway`) runs: **Test** -> **Build Docker image** -> **Push to GHCR** as `ghcr.io/statnyk/ai-news-digest:n8n-latest` -> **Trigger Railway deploy** (if configured).
+2. **Railway** redeploys the App service from the new image.
+
+A second workflow (`.github/workflows/rag-pipeline.yml`) runs on a daily schedule (06:00 UTC): it SSHs into Railway to run DB migrations, then calls `POST /api/pipeline` to trigger the full data pipeline (ingest + index + digest).
 
 To enable the “trigger Railway deploy” step:
 
@@ -89,7 +93,7 @@ If you run **n8n** on Railway (or any self-hosted n8n that uses this Postgres), 
 ## 7. Deploy and configure workflows
 
 - Deploy the app; health check: `/api/health`
-- Configure workflows in **n8n Cloud** (statnyk.app.n8n.cloud) and point webhooks to `/chat`, `/digest`, `/pipeline` as in the repo.
+- Configure workflows in **n8n Cloud** (statnyk.app.n8n.cloud) and point webhooks to `/chat`, `/digest`, `/pipeline` as in the repo. Import all five workflows from `src/workflows/` (01 through 05). See [N8N-QUICKSTART.md](N8N-QUICKSTART.md) for a step-by-step import guide.
 - **Digest shows "0 articles"?** The digest workflow must use the **same PostgreSQL** as your app (`articles`, `topics`, `article_topics`). In n8n, set the digest workflow’s Postgres credential to that DB and re-import `src/workflows/02-weekly-digest.json` (it now uses topic/range from the webhook).
 
 For “migrations failed” on n8n, see [n8n-production-database.md](n8n-production-database.md).

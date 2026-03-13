@@ -1,16 +1,38 @@
-# React + Vite
+# AI News Digest -- Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite single-page application providing the Chat and Digest UI for the AI News Digest system.
 
-Currently, two official plugins are available:
+## Quick start
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+From the **project root** (not this directory):
 
-## React Compiler
+```bash
+docker compose up -d          # Start backend + infrastructure
+npm run dev --prefix frontend # Start Vite dev server
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Open **http://localhost:5173/** -- the Vite dev server proxies `/api` requests to the backend API on port 3001.
 
-## Expanding the ESLint configuration
+Alternatively, run both API and UI together:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm run dev   # from project root -- starts API + Vite concurrently
+```
+
+## What this app does
+
+- **Chat tab** -- Ask questions about AI/tech news. Answers are RAG-grounded with source citations.
+- **Digest tab** -- Read weekly (or custom-range) summaries of ingested articles. Click "Refresh Data" to trigger the full pipeline.
+- **Topics/Folders** -- Create folders with custom RSS feeds for filtered conversations and digests.
+
+## Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_API_URL` | (empty) | API base URL. Empty means same-origin (Vite proxy handles it in dev; built frontend is served by the API in production). |
+
+## More info
+
+- **Full setup, n8n workflows, and deployment:** See the [root README](../README.md)
+- **n8n workflow import guide:** See [docs/N8N-QUICKSTART.md](../docs/N8N-QUICKSTART.md)
+- **UI user guide:** See [docs/USER-GUIDE.md](../docs/USER-GUIDE.md)
