@@ -3,8 +3,10 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import config from "../../config/index.js";
 import { runDigest } from "../../services/weeklyDigest.js";
+import { runIngestion } from "../../services/rssIngestion.js";
 import { log } from "../../utils/logger.js";
 import { isN8nEnabled, forwardToN8n } from "../../utils/n8nWebhook.js";
+import { formatDigestTitle } from "./formatDigestTitle.js";
 
 function getLatestDigest(topicSlug = null, range = "1w") {
   const outputDir = resolve(config.digest.outputDir);
@@ -34,6 +36,15 @@ export function registerDigestRoutes(app) {
       const range = req.query.range ? String(req.query.range) : "1w";
 
       if (isN8nEnabled()) {
+        // When a folder (topic) is selected, ingest that topic's RSS feeds first so article_topics
+        // is populated; n8n workflow 02 filters by article_topics and otherwise only sees workflow-01 articles.
+        if (topicSlug) {
+          try {
+            await runIngestion({ topicSlug });
+          } catch (err) {
+            log("API", `Topic ingestion before digest: ${err.message}`);
+          }
+        }
         const data = await forwardToN8n("digest", { topic: topicSlug, topicSlug, range });
         // #region agent log
         fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'digest/http.js:afterForward',message:'parsed n8n data',data:{type:typeof data,isArray:Array.isArray(data),keys:data&&typeof data==='object'?Object.keys(data):[],hasMarkdown:!!(data?.markdown),hasJsonMarkdown:!!(data?.json?.markdown),preview:JSON.stringify(data)?.slice(0,400)},timestamp:Date.now(),hypothesisId:'H1-H4'})}).catch(()=>{});
@@ -42,9 +53,11 @@ export function registerDigestRoutes(app) {
         const payload = Array.isArray(data) && data[0]?.json != null
           ? data[0].json
           : (data?.json ?? data);
+        let markdown = payload?.markdown || payload?.output || payload?.text || JSON.stringify(payload);
+        markdown = await formatDigestTitle(markdown, topicSlug, range);
         return res.json({
           articleCount: payload?.articleCount ?? null,
-          markdown: payload?.markdown || payload?.output || payload?.text || JSON.stringify(payload),
+          markdown,
         });
       }
 

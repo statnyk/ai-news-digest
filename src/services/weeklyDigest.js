@@ -39,7 +39,7 @@ function formatDateShort(date) {
   });
 }
 
-function getRangeWindow(rangeKey) {
+export function getRangeWindow(rangeKey) {
   const normalized = typeof rangeKey === "string" ? rangeKey.trim().toLowerCase() : "1w";
   const selectedKey = DIGEST_RANGE_CONFIG[normalized] ? normalized : "1w";
   const configEntry = DIGEST_RANGE_CONFIG[selectedKey];
