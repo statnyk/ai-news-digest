@@ -19,6 +19,7 @@ const DIGEST_RANGE_CONFIG = {
   "1d": { days: 1, label: "Last 1 day" },
   "3d": { days: 3, label: "Last 3 days" },
   "1w": { days: 7, label: "Last 1 week" },
+  "2w": { days: 14, label: "Last 2 weeks" },
 };
 
 // ─── Date helpers ────────────────────────────────────────────
@@ -149,7 +150,7 @@ export async function runDigest(options = {}) {
     throw new Error("Topic not found.");
   }
 
-  const result = topic
+  let result = topic
     ? await query(
         `SELECT a.id, a.title, a.url, a.source, a.published_at, a.category, a.summary
          FROM articles a
@@ -166,21 +167,54 @@ export async function runDigest(options = {}) {
         [startDate.toISOString()]
       );
 
-  const articles = result.rows;
-  log("DIGEST", `  Found ${articles.length} articles in ${rangeLabel.toLowerCase()}.`);
+  let articles = result.rows;
+  let effectiveRangeLabel = rangeLabel;
+  let fallbackNote = "";
+
+  // Only use 365-day fallback for longer ranges (3d, 1w, 2w). For short ranges (5m, 30m, 1h, 1d),
+  // show "No articles found" instead of old articles from days/weeks ago.
+  const useFallbackForRange = ["3d", "1w", "2w"].includes(rangeKey);
+  if (topic && articles.length === 0 && useFallbackForRange) {
+    const fallbackStart = new Date(endDate);
+    fallbackStart.setDate(fallbackStart.getDate() - 365);
+    const fallbackResult = await query(
+      `SELECT a.id, a.title, a.url, a.source, a.published_at, a.category, a.summary
+       FROM articles a
+       INNER JOIN article_topics at ON at.article_id = a.id
+       WHERE a.published_at >= $1 AND at.topic_id = $2
+       ORDER BY a.published_at DESC
+       LIMIT 100`,
+      [fallbackStart.toISOString(), topic.id]
+    );
+    if (fallbackResult.rows.length > 0) {
+      articles = fallbackResult.rows;
+      effectiveRangeLabel = "Last 12 months (none in selected range)";
+      fallbackNote = "\n\n_(No articles in the selected date range; showing latest for this topic.)_";
+      log("DIGEST", `  No articles in ${rangeLabel}; using ${articles.length} from last 12 months.`);
+    }
+  }
+
+  log("DIGEST", `  Found ${articles.length} articles in ${effectiveRangeLabel.toLowerCase()}.`);
 
   if (articles.length === 0) {
     log("DIGEST", "  No articles found. Generating empty digest.");
   }
 
-  // Generate markdown
-  const markdown = generateMarkdown(
-    articles,
-    startDate,
-    endDate,
-    topic?.name || "",
-    rangeLabel
-  );
+  const digestEndDate = articles.length > 0 && fallbackNote
+    ? new Date(Math.max(...articles.map((a) => new Date(a.published_at).getTime())))
+    : endDate;
+  const digestStartDate = articles.length > 0 && fallbackNote
+    ? new Date(Math.min(...articles.map((a) => new Date(a.published_at).getTime())))
+    : startDate;
+
+  const markdown =
+    generateMarkdown(
+      articles,
+      digestStartDate,
+      digestEndDate,
+      topic?.name || "",
+      effectiveRangeLabel
+    ) + fallbackNote;
 
   // Write to file
   const outputDir = resolve(config.digest.outputDir);

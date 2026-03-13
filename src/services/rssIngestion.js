@@ -71,11 +71,20 @@ function normalizeItem(item, feedUrl, feedTitle) {
     .trim()
     .slice(0, 500);
 
+  let publishedAt = item.isoDate || item.pubDate || new Date().toISOString();
+  try {
+    const d = new Date(publishedAt);
+    if (Number.isNaN(d.getTime())) publishedAt = new Date().toISOString();
+    else publishedAt = d.toISOString();
+  } catch {
+    publishedAt = new Date().toISOString();
+  }
+
   return {
     title: (item.title || "Untitled").trim(),
     url: (item.link || item.guid || "").trim(),
     source,
-    published_at: item.isoDate || item.pubDate || new Date().toISOString(),
+    published_at: publishedAt,
     category,
     summary: summary || null,
     content: content || null,

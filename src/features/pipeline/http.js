@@ -1,48 +1,84 @@
 import { runIngestion } from "../../services/rssIngestion.js";
 import { runIndexing } from "../../services/vectorIndexing.js";
-import { runDigest } from "../../services/weeklyDigest.js";
+import { runDigest, getRangeWindow } from "../../services/weeklyDigest.js";
 import { log } from "../../utils/logger.js";
 import { isN8nEnabled, forwardToN8n } from "../../utils/n8nWebhook.js";
 import { formatDigestTitle } from "../digest/formatDigestTitle.js";
+import { listTopicSources, getTopicBySlug } from "../../services/topics.js";
+import config from "../../config/index.js";
 
 export function registerPipelineRoutes(app) {
   app.post("/api/pipeline", async (req, res) => {
     const topicSlug = req.body?.topicSlug || null;
     const range = req.body?.range || "1w";
 
-    if (isN8nEnabled()) {
-      // n8n pipeline only ingests default feeds; run topic ingestion in Node so article_topics
-      // is populated for the selected folder (Folders feature).
-      if (topicSlug) {
-        try {
-          await runIngestion({ topicSlug });
-        } catch (err) {
-          log("API", `Topic ingestion before pipeline: ${err.message}`);
-        }
-      }
+    log("API", `Pipeline request: topicSlug=${topicSlug}, range=${range}, n8n=${isN8nEnabled()}`);
+
+    // Topic pipeline: always use Node ingestion + digest (n8n pipeline doesn't handle topics).
+    if (topicSlug) {
+      const stepErrors = [];
+      let ingested = 0;
+      let indexed = 0;
+      let digest = null;
+
       try {
-        const data = await forwardToN8n("pipeline", { topicSlug, range });
-        // Digest always comes from the digest webhook (02) so it respects topicSlug + range
-        // and uses the same markdown format. Pipeline 05 no longer returns a digest.
+        const stats = await runIngestion({ topicSlug });
+        ingested = stats?.totalInserted ?? 0;
+        log("API", `Topic ingestion done: ${ingested} new, ${stats?.totalFetched ?? 0} fetched, ${stats?.totalSkipped ?? 0} skipped`);
+      } catch (err) {
+        log("API", `Topic ingestion failed: ${err.message}`);
+        stepErrors.push({ step: "ingestion", error: err.message });
+      }
+
+      try {
+        const result = await runDigest({ topicSlug, range });
+        const markdown = await formatDigestTitle(result.markdown, topicSlug, range);
+        digest = { articleCount: result.articleCount, markdown };
+        log("API", `Topic digest done: ${result.articleCount} articles for ${topicSlug} / ${range}`);
+      } catch (err) {
+        log("API", `Topic digest failed: ${err.message}`);
+        stepErrors.push({ step: "digest", error: err.message });
+      }
+
+      return res.json({
+        ingested,
+        indexed,
+        digest,
+        ...(stepErrors.length > 0 && { stepErrors }),
+      });
+    }
+
+    // "All News" pipeline via n8n: send feeds, rangeStart, topicSlug, topicId in the body.
+    if (isN8nEnabled()) {
+      try {
+        let feeds = config.rss.feeds.length > 0 ? config.rss.feeds : config.rss.defaultFeeds;
+        const topicIdForN8n = null;
+
+        const { startDate } = getRangeWindow(range);
+        const body = {
+          topicSlug: "",
+          topicId: topicIdForN8n,
+          range,
+          rangeStart: startDate.toISOString(),
+          feeds,
+        };
+        log("API", `n8n pipeline body: range=${range}, feedsCount=${body.feeds.length}`);
+
+        const data = await forwardToN8n("pipeline", body);
+
         let digest = null;
-        try {
-          const digestData = await forwardToN8n("digest", {
-            topic: topicSlug || undefined,
-            topicSlug: topicSlug || "",
-            range: range || "1w",
-          });
-          const payload = Array.isArray(digestData) && digestData[0]?.json != null
-            ? digestData[0].json
-            : (digestData?.json ?? digestData);
-          let markdown = payload?.markdown || payload?.output || payload?.text || "";
+        const payload = Array.isArray(data) && data[0]?.json != null
+          ? data[0].json
+          : (data?.json ?? data);
+        if (payload?.digest?.markdown) {
+          let markdown = payload.digest.markdown;
           markdown = await formatDigestTitle(markdown, topicSlug || null, range);
-          digest = { articleCount: payload?.articleCount ?? null, markdown };
-        } catch (digestErr) {
-          log("API", `n8n digest after pipeline: ${digestErr.message}`);
+          digest = { articleCount: payload.digest.articleCount ?? null, markdown };
         }
+
         return res.json({
-          ingested: data.ingested ?? 0,
-          indexed: data.indexed ?? 0,
+          ingested: payload?.ingested ?? data?.ingested ?? 0,
+          indexed: payload?.indexed ?? data?.indexed ?? 0,
           digest,
         });
       } catch (err) {
@@ -59,7 +95,7 @@ export function registerPipelineRoutes(app) {
     let digest = null;
 
     try {
-      const stats = await runIngestion({ topicSlug });
+      const stats = await runIngestion();
       ingested = stats?.totalInserted ?? 0;
       log("API", `Ingestion done: ${ingested} new articles`);
     } catch (err) {
@@ -77,7 +113,7 @@ export function registerPipelineRoutes(app) {
     }
 
     try {
-      const result = await runDigest({ topicSlug, range });
+      const result = await runDigest({ range });
       digest = { articleCount: result.articleCount, markdown: result.markdown };
       log("API", `Digest done: ${result.articleCount} articles`);
     } catch (err) {

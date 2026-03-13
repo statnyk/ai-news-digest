@@ -4,6 +4,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import config from "../../config/index.js";
 import { runDigest } from "../../services/weeklyDigest.js";
 import { runIngestion } from "../../services/rssIngestion.js";
+import { listTopicSources } from "../../services/topics.js";
+import { query } from "../../utils/db.js";
 import { log } from "../../utils/logger.js";
 import { isN8nEnabled, forwardToN8n } from "../../utils/n8nWebhook.js";
 import { formatDigestTitle } from "./formatDigestTitle.js";
@@ -35,18 +37,54 @@ export function registerDigestRoutes(app) {
       const topicSlug = req.query.topic ? String(req.query.topic) : null;
       const range = req.query.range ? String(req.query.range) : "1w";
 
-      if (isN8nEnabled()) {
-        // When a folder (topic) is selected, ingest that topic's RSS feeds first so article_topics
-        // is populated; n8n workflow 02 filters by article_topics and otherwise only sees workflow-01 articles.
-        if (topicSlug) {
-          try {
-            await runIngestion({ topicSlug });
-          } catch (err) {
-            log("API", `Topic ingestion before digest: ${err.message}`);
-          }
+      // Topic digest: always run ingestion then Node digest (same DB). Works with or without n8n.
+      if (topicSlug) {
+        const sourceList = await listTopicSources(topicSlug);
+        if (sourceList.error) {
+          return res.status(400).json({ error: sourceList.error });
         }
+        const activeFeeds = (sourceList.sources || []).filter((s) => s.active !== false);
+        if (activeFeeds.length === 0) {
+          return res.status(400).json({
+            error: "No RSS feeds for this topic. Add sources in the topic settings (click the topic name).",
+          });
+        }
+        let stats;
+        try {
+          stats = await runIngestion({ topicSlug });
+        } catch (err) {
+          log("API", `Topic ingestion before digest: ${err.message}`);
+          return res.status(400).json({
+            error: err.message === "Topic not found." ? "Topic not found." : `Ingestion failed: ${err.message}`,
+          });
+        }
+        if (stats.totalFetched === 0) {
+          return res.status(400).json({
+            error: "RSS feeds returned no items. Check that the feed URL is valid and returns entries (try opening it in a browser).",
+          });
+        }
+        const linked = await query(
+          `SELECT COUNT(*)::int AS c FROM article_topics at
+           INNER JOIN topics t ON t.id = at.topic_id WHERE t.slug = $1`,
+          [topicSlug]
+        );
+        const linkedCount = linked.rows[0]?.c ?? 0;
+        if (linkedCount === 0) {
+          log("API", `Topic ${topicSlug}: ingestion fetched ${stats.totalFetched} but 0 linked to topic. Check server logs for insert errors.`);
+          return res.status(400).json({
+            error: "Articles were fetched but none could be linked to this topic. Check server logs for RSS or database errors.",
+          });
+        }
+        const result = await runDigest({ topicSlug, range });
+        const markdown = await formatDigestTitle(result.markdown, topicSlug, range);
+        return res.json({
+          articleCount: result.articleCount,
+          markdown,
+        });
+      }
+
+      if (isN8nEnabled()) {
         const data = await forwardToN8n("digest", { topic: topicSlug, topicSlug, range });
-        // n8n responseMode lastNode may return [{json:{…}}] or {json:{…}}; normalize
         const payload = Array.isArray(data) && data[0]?.json != null
           ? data[0].json
           : (data?.json ?? data);

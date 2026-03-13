@@ -594,23 +594,39 @@ export default function App() {
     return () => { cancelled = true; };
   }, [topicModalOpen, selectedTopic]);
 
-  const digestLoaded = useRef(digestMessages.length > 0);
-  useEffect(() => {
-    if (mode !== "digest" || digestLoaded.current || loading) return;
-    digestLoaded.current = true;
+  const loadDigest = useCallback((rangeOverride) => {
+    if (loading) return;
+    const range = rangeOverride ?? digestRange;
     setLoading(true);
     setError(null);
     const params = new URLSearchParams();
-    params.set("range", digestRange);
+    params.set("range", range);
     if (selectedTopic !== "all") {
       params.set("topic", selectedTopic);
     }
     fetch(`${API_BASE}/api/digest?${params.toString()}`)
-      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`Server error (${r.status})`)))
-      .then((data) => { if (data.markdown) setDigestMessages([{ role: "assistant", content: data.markdown, sources: [] }]); })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) return Promise.reject(new Error(data.error || `Server error (${r.status})`));
+        return data;
+      })
+      .then((data) => {
+        if (data.markdown) setDigestMessages([{ role: "assistant", content: data.markdown, sources: [] }]);
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [mode, loading, digestMessages.length, selectedTopic, digestRange]);
+  }, [digestRange, selectedTopic, loading]);
+
+  const digestLoaded = useRef(false);
+  useEffect(() => {
+    digestLoaded.current = false;
+  }, [selectedTopic, digestRange]);
+
+  useEffect(() => {
+    if (mode !== "digest" || digestLoaded.current || loading) return;
+    digestLoaded.current = true;
+    loadDigest();
+  }, [mode, loading, digestMessages.length, selectedTopic, digestRange, loadDigest]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -938,9 +954,10 @@ export default function App() {
                     className="digest-range-select"
                     value={digestRange}
                     onChange={(e) => {
-                      setDigestRange(e.target.value);
-                      digestLoaded.current = false;
+                      const newRange = e.target.value;
+                      setDigestRange(newRange);
                       setDigestMessages([]);
+                      loadDigest(newRange);
                     }}
                     disabled={isAnyLoading}
                   >

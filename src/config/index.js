@@ -35,7 +35,15 @@ const config = {
 
   // ─── RSS ──────────────────────────────────────────────────
   rss: {
-    feeds: (process.env.RSS_FEEDS || "").split(",").filter(Boolean),
+    feeds: (process.env.RSS_FEEDS || "")
+      .split(",")
+      .map((url) => url.trim())
+      .filter(Boolean),
+    defaultFeeds: [
+      "https://techcrunch.com/category/artificial-intelligence/feed/",
+      "https://feeds.arstechnica.com/arstechnica/technology-lab",
+      "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+    ],
   },
 
   // ─── Digest ───────────────────────────────────────────────

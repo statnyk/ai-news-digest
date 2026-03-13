@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/aurelstatnik/Documents/Personal/ai-news-digest/frontend/src -name *.jsx -o -name *.js -o -name *.ts -o -name *.tsx)",
+      "Bash(node -e \"const j = require\\(''./src/workflows/05-pipeline.json''\\); console.log\\(''Valid JSON ✅''\\); console.log\\(''Nodes:'', j.nodes.map\\(n => n.name\\)\\); console.log\\(''Connections:'', Object.keys\\(j.connections\\)\\)\")",
+      "Bash(node -e \":*)"
+    ]
+  }
+}

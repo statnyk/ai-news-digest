@@ -8,6 +8,7 @@ export const DIGEST_RANGES = [
   { value: "1d", label: "Last 1 day" },
   { value: "3d", label: "Last 3 days" },
   { value: "1w", label: "Last 1 week" },
+  { value: "2w", label: "Last 2 weeks" },
 ];
 
 export const QUESTION_POOL = [
