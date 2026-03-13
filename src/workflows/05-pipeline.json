@@ -10,76 +10,205 @@
           "rawBody": false
         }
       },
-      "id": "pipeline-webhook",
+      "id": "7b661166-e18b-4fcf-be4e-3ff73f0dd91e",
       "name": "Pipeline Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [200, 400],
+      "position": [
+        688,
+        -1936
+      ],
       "webhookId": "pipeline"
     },
     {
       "parameters": {
         "jsCode": "// Extract params from webhook body: topicSlug, rangeStart (ISO timestamp), feeds (array of URLs).\n// Defaults: no topic, 7-day range, empty feeds (caller must provide feeds).\nconst item = $input.first();\nconst raw = item?.json || {};\n\n// Resolve the request body robustly across n8n webhook output shapes:\n// 1. raw.body  — n8n webhook v2 standard (parsed JSON object or JSON string)\n// 2. raw.data  — some proxy / middleware wrappings\n// 3. raw.payload — alternative wrapper key\n// 4. raw itself — if it already contains the expected keys at the root\nfunction resolveBody(r) {\n  function tryParse(v) {\n    if (v && typeof v === 'object') return v;\n    if (typeof v === 'string' && v.trim().startsWith('{')) {\n      try { return JSON.parse(v); } catch {}\n    }\n    return null;\n  }\n  const fromBody = tryParse(r.body);\n  if (fromBody) return fromBody;\n  const fromData = tryParse(r.data);\n  if (fromData && (fromData.feeds !== undefined || fromData.topicSlug !== undefined || fromData.range !== undefined)) return fromData;\n  const fromPayload = tryParse(r.payload);\n  if (fromPayload) return fromPayload;\n  // Fall back to raw root if it looks like the expected shape\n  if (r.feeds !== undefined || r.topicSlug !== undefined || r.range !== undefined) return r;\n  return r;\n}\n\nconst body = resolveBody(raw);\nconst topicSlug = (body.topicSlug ?? '').toString().trim();\nconst range = (body.range || '1w').toString().toLowerCase().trim();\nlet feeds = body.feeds || [];\nif (!Array.isArray(feeds)) feeds = [];\n\n// Compute rangeStart from body or derive from range\nlet rangeStart = body.rangeStart || '';\nif (!rangeStart) {\n  let days = 7;\n  if (range === '2w') days = 14;\n  else if (range === '1d') days = 1;\n  else if (range === '3d') days = 3;\n  else if (range === '5m') { const d = new Date(); d.setMinutes(d.getMinutes() - 5); rangeStart = d.toISOString(); }\n  else if (range === '30m') { const d = new Date(); d.setMinutes(d.getMinutes() - 30); rangeStart = d.toISOString(); }\n  else if (range === '1h') { const d = new Date(); d.setHours(d.getHours() - 1); rangeStart = d.toISOString(); }\n  if (!rangeStart) {\n    const d = new Date();\n    d.setDate(d.getDate() - days);\n    rangeStart = d.toISOString();\n  }\n}\n\n// Resolve topicId: look up by slug if set\nlet topicId = body.topicId ?? null;\n\nreturn [{ json: { topicSlug, topicId, range, rangeStart, feeds } }];"
       },
-      "id": "normalize-params",
+      "id": "a248c98d-36c0-4349-90c4-93bbc311c2a1",
       "name": "Normalize Pipeline Params",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [420, 400]
+      "position": [
+        912,
+        -1936
+      ]
     },
     {
       "parameters": {
         "jsCode": "// Emit one item per feed URL so the RSS reader processes each feed.\nconst params = $input.first().json;\nconst feeds = params.feeds || [];\nif (feeds.length === 0) {\n  return [{ json: { feedUrl: '', _skip: true, _params: params } }];\n}\nreturn feeds.map(url => ({ json: { feedUrl: url, _params: params } }));"
       },
-      "id": "feed-list",
+      "id": "0fd3841d-ad19-406e-8397-141970e6dcda",
       "name": "RSS Feed URLs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [640, 400]
+      "position": [
+        1136,
+        -1936
+      ]
     },
     {
       "parameters": {
         "url": "={{ $json.feedUrl }}",
         "options": {}
       },
-      "id": "fetch-rss",
+      "id": "936f97db-f153-4c93-afa5-cc0329f677ac",
       "name": "Fetch RSS Feed",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1,
-      "position": [860, 400],
+      "position": [
+        1344,
+        -1936
+      ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "jsCode": "function extractSourceName(url) {\n  const SOURCE_MAP = {\n    'techcrunch.com': 'TechCrunch',\n    'arstechnica.com': 'Ars Technica',\n    'theverge.com': 'The Verge',\n    'reuters.com': 'Reuters',\n    'bbc.com': 'BBC',\n    'bbc.co.uk': 'BBC',\n    'cnn.com': 'CNN',\n    'aljazeera.com': 'Al Jazeera',\n    'apnews.com': 'AP News'\n  };\n  for (const [domain, name] of Object.entries(SOURCE_MAP)) {\n    if (url.includes(domain)) return name;\n  }\n  try { return new URL(url).hostname; } catch { return 'Unknown'; }\n}\n\nfunction stripHtml(text) {\n  if (!text) return '';\n  return text.replace(/<[^>]*>/g, ' ').replace(/&[^;]+;/g, ' ').replace(/\\s+/g, ' ').trim();\n}\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  if (data._skip) continue;\n  const url = (data.link || data.guid || '').trim();\n  if (!url) continue;\n\n  let publishedAt = data.isoDate || data.pubDate || new Date().toISOString();\n  try {\n    const d = new Date(publishedAt);\n    publishedAt = Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();\n  } catch { publishedAt = new Date().toISOString(); }\n\n  const category = (data.categories && data.categories.length > 0)\n    ? (typeof data.categories[0] === 'string' ? data.categories[0] : (data.categories[0].name || data.categories[0]._ || 'general')).toLowerCase().trim()\n    : 'general';\n\n  results.push({\n    json: {\n      title: (data.title || 'Untitled').trim(),\n      url,\n      source: extractSourceName(url),\n      published_at: publishedAt,\n      category,\n      summary: stripHtml(data.contentSnippet || data.summary || '').slice(0, 500) || null,\n      content: stripHtml(data['content:encoded'] || data.content || '') || null\n    }\n  });\n}\n\nif (results.length === 0) {\n  return [{ json: { _empty: true } }];\n}\nreturn results;"
       },
-      "id": "normalize-items",
+      "id": "981b6268-3527-45df-bea7-f2e396d06e47",
       "name": "Normalize RSS Items",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1080, 400]
+      "position": [
+        1568,
+        -1936
+      ]
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO articles (title, url, source, published_at, category, summary, content)\nVALUES ($1, $2, $3, $4::timestamptz, $5, $6, $7)\nON CONFLICT (url) DO NOTHING\nRETURNING id, title;",
-        "options": {
-          "queryParameters": "={{ [$json.title, $json.url, $json.source, $json.published_at, $json.category, $json.summary || '', ($json.content || '').substring(0, 50000)] }}"
-        }
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "articles",
+          "mode": "list",
+          "cachedResultName": "articles"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "id": 0
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "published_at",
+              "displayName": "published_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "content",
+              "displayName": "content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ingested_at",
+              "displayName": "ingested_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "indexed_at",
+              "displayName": "indexed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
       },
-      "id": "insert-article",
+      "id": "4963ce41-78a9-4e1b-9820-3ee954aa336a",
       "name": "Insert into PostgreSQL",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1300, 400],
+      "position": [
+        1792,
+        -1936
+      ],
+      "alwaysOutputData": true,
       "credentials": {
         "postgres": {
-          "id": "POSTGRES_CREDENTIAL_ID",
-          "name": "PostgreSQL"
+          "id": "6hsqSZA38qSubjaf",
+          "name": "AI Digest App"
         }
       },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -87,7 +216,8 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict"
+            "typeValidation": "strict",
+            "version": 1
           },
           "conditions": [
             {
@@ -104,116 +234,275 @@
         },
         "options": {}
       },
-      "id": "if-topic",
+      "id": "470a76dd-62de-4ecf-a649-905b10707ee0",
       "name": "If topicId set",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1520, 400]
+      "position": [
+        2016,
+        -1936
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO article_topics (article_id, topic_id)\nVALUES ($1, $2)\nON CONFLICT (article_id, topic_id) DO NOTHING",
         "options": {
-          "queryParameters": "={{ [$json.id, $('Normalize Pipeline Params').first().json.topicId] }}"
+          "queryReplacement": "={{ [$json.id, $(\"Normalize Pipeline Params\").first().json.topicId] }}"
         }
       },
-      "id": "link-to-topic-pg",
+      "id": "cdae8010-f58e-4989-bee9-857f7505276b",
       "name": "Link to Topic",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1740, 280],
+      "position": [
+        2224,
+        -2048
+      ],
+      "alwaysOutputData": true,
       "credentials": {
         "postgres": {
-          "id": "POSTGRES_CREDENTIAL_ID",
-          "name": "PostgreSQL"
+          "id": "6hsqSZA38qSubjaf",
+          "name": "AI Digest App"
         }
       },
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "jsCode": "// Ensure Fetch Recent Articles runs exactly once (not once per inserted article).\nconst items = $input.all();\nreturn items.length ? [items[0]] : [{ json: {} }];"
       },
-      "id": "first-for-fetch",
+      "id": "59bd334b-8255-4edb-b9be-f902f3632b8e",
       "name": "Single item for Fetch",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2400, 400]
+      "position": [
+        2896,
+        -1936
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT a.id, a.title, a.url, a.source, a.published_at, a.category, a.summary\nFROM articles a\nWHERE a.published_at >= $2::timestamptz\nAND ($1 = '' OR a.id IN (SELECT at.article_id FROM article_topics at INNER JOIN topics t ON t.id = at.topic_id WHERE t.slug = $1))\nORDER BY a.published_at DESC",
+        "query": "SELECT id, title, url, source, published_at, category, summary, content\nFROM articles\nWHERE published_at >= $1::timestamptz\nORDER BY published_at DESC;",
         "options": {
-          "queryParameters": "={{ $('Normalize Pipeline Params').first().json.topicSlug }},={{ $('Normalize Pipeline Params').first().json.rangeStart }}"
+          "queryReplacement": "={{ $(\"Normalize Pipeline Params\").first().json.rangeStart }}"
         }
       },
-      "id": "fetch-articles",
+      "id": "72c8e9f2-4f1a-4496-95dc-645fc8af1694",
       "name": "Fetch Recent Articles",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [2620, 400],
+      "position": [
+        3104,
+        -1936
+      ],
+      "alwaysOutputData": true,
       "credentials": {
         "postgres": {
-          "id": "POSTGRES_CREDENTIAL_ID",
-          "name": "PostgreSQL"
+          "id": "6hsqSZA38qSubjaf",
+          "name": "AI Digest App"
         }
-      },
-      "alwaysOutputData": true
+      }
     },
     {
       "parameters": {
         "jsCode": "// Build digest markdown — same format as workflow 02.\nconst params = $('Normalize Pipeline Params').first().json;\nconst topicSlug = params.topicSlug || '';\nconst range = params.range || '1w';\nconst rangeStart = new Date(params.rangeStart);\nconst endDate = new Date();\nconst rangeLabels = { '5m': 'Last 5 minutes', '30m': 'Last 30 minutes', '1h': 'Last 1 hour', '1d': 'Last 1 day', '3d': 'Last 3 days', '1w': 'Last 1 week', '2w': 'Last 2 weeks' };\nconst rangeLabel = rangeLabels[range] || 'Last 1 week';\nconst articles = $input.all().map(i => i.json).filter(a => a.id || a.title);\n\nfunction formatDate(date) {\n  return new Date(date).toLocaleDateString('en-US', {\n    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'\n  });\n}\n\nfunction formatDateShort(date) {\n  return new Date(date).toLocaleDateString('en-US', {\n    month: 'short', day: 'numeric', year: 'numeric'\n  });\n}\n\nfunction topicDisplay(slug) {\n  if (!slug) return '';\n  return slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');\n}\n\nconst startDate = rangeStart;\nconst lines = [];\nconst titleParts = ['\\u{1F4F0} AI News Weekly Digest', topicSlug ? topicDisplay(topicSlug) : null, rangeLabel].filter(Boolean);\nlines.push('# ' + titleParts.join(' \\u2014 '));\nlines.push('');\nlines.push(`**${formatDate(startDate)} \\u2014 ${formatDate(endDate)}**`);\nlines.push('');\nconst uniqueSources = new Set(articles.map(a => a.source));\nlines.push(`> ${articles.length} articles from ${uniqueSources.size} sources`);\nlines.push('');\nlines.push('---');\nlines.push('');\n\nif (articles.length === 0) {\n  lines.push('_No articles found for this period._');\n} else {\n  const grouped = {};\n  for (const a of articles) {\n    const cat = a.category || 'general';\n    if (!grouped[cat]) grouped[cat] = [];\n    grouped[cat].push(a);\n  }\n  const sortedCategories = Object.entries(grouped).sort((a, b) => b[1].length - a[1].length);\n  for (const [category, catArticles] of sortedCategories) {\n    const displayCat = category.charAt(0).toUpperCase() + category.slice(1);\n    lines.push(`## ${displayCat} (${catArticles.length})`);\n    lines.push('');\n    catArticles.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));\n    for (const a of catArticles) {\n      const date = a.published_at ? formatDateShort(a.published_at) : 'Date N/A';\n      const summary = a.summary ? (a.summary.slice(0, 200) + (a.summary.length > 200 ? '...' : '')) : '_No summary available._';\n      lines.push(`### [${a.title}](${a.url})`);\n      lines.push('');\n      lines.push(`\\u{1F4C5} ${date} \\u00B7 \\u{1F4E1} ${a.source}`);\n      lines.push('');\n      lines.push(summary);\n      lines.push('');\n    }\n    lines.push('---');\n    lines.push('');\n  }\n}\nlines.push(`_Generated on ${formatDate(new Date())} by AI News Digest._`);\n\nconst markdown = lines.join('\\n');\n\nreturn [{\n  json: {\n    ingested: articles.length,\n    indexed: 0,\n    digest: { articleCount: articles.length, markdown }\n  }\n}];"
       },
-      "id": "build-response",
+      "id": "671f8cba-7671-4ec3-bf36-61a1267a72cb",
       "name": "Build Pipeline Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2840, 400]
+      "position": [
+        3328,
+        -1936
+      ]
     }
   ],
+  "pinData": {
+    "Pipeline Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "statnyk.app.n8n.cloud",
+            "user-agent": "curl/8.7.1",
+            "content-length": "247",
+            "accept": "*/*",
+            "accept-encoding": "gzip, br",
+            "cdn-loop": "cloudflare; loops=1; subreqs=1",
+            "cf-connecting-ip": "89.149.118.64",
+            "cf-ew-via": "15",
+            "cf-ipcountry": "MD",
+            "cf-ray": "9dbb3dea5aba185e-KIV",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "cf-worker": "n8n.cloud",
+            "content-type": "application/json",
+            "x-forwarded-for": "89.149.118.64, 172.69.200.146",
+            "x-forwarded-host": "statnyk.app.n8n.cloud",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "traefik-prod-users-gwc-13-6fc766d76c-tnfxf",
+            "x-is-trusted": "yes",
+            "x-real-ip": "89.149.118.64"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "topicSlug": "",
+            "topicId": null,
+            "range": "1w",
+            "rangeStart": "2026-03-06T00:00:00Z",
+            "feeds": [
+              "https://techcrunch.com/category/artificial-intelligence/feed/",
+              "https://feeds.arstechnica.com/arstechnica/technology-lab"
+            ]
+          },
+          "webhookUrl": "https://statnyk.app.n8n.cloud/webhook/pipeline",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
   "connections": {
     "Pipeline Webhook": {
-      "main": [[{ "node": "Normalize Pipeline Params", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Normalize Pipeline Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Normalize Pipeline Params": {
-      "main": [[{ "node": "RSS Feed URLs", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "RSS Feed URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "RSS Feed URLs": {
-      "main": [[{ "node": "Fetch RSS Feed", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Fetch RSS Feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Fetch RSS Feed": {
-      "main": [[{ "node": "Normalize RSS Items", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Normalize RSS Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Normalize RSS Items": {
-      "main": [[{ "node": "Insert into PostgreSQL", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Insert into PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Insert into PostgreSQL": {
-      "main": [[{ "node": "If topicId set", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "If topicId set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "If topicId set": {
       "main": [
-        [{ "node": "Link to Topic", "type": "main", "index": 0 }],
-        [{ "node": "Single item for Fetch", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Link to Topic",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Single item for Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Link to Topic": {
-      "main": [[{ "node": "Single item for Fetch", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Single item for Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Single item for Fetch": {
-      "main": [[{ "node": "Fetch Recent Articles", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Fetch Recent Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Fetch Recent Articles": {
-      "main": [[{ "node": "Build Pipeline Response", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Build Pipeline Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "active": true,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
   },
-  "tags": [{ "name": "ai-news-digest" }],
+  "versionId": "99efc75a-6e19-4c4a-86cf-5bdfb2a283f9",
   "meta": {
-    "notes": "## Full Pipeline (Webhook)\n\nCombines RSS ingestion + digest generation into a single webhook-triggered workflow.\nTriggered via POST /webhook/pipeline from the app's Refresh Data button.\n\nExpects body: { topicSlug?, topicId?, range?, rangeStart?, feeds: string[] }\n- When topicId is set, newly inserted articles are linked in article_topics (article_id, topic_id).\n- Digest is built from articles in range, filtered by topicSlug when set.\nReturns: { ingested, indexed, digest: { articleCount, markdown } }"
-  }
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6ccf58988494e01628f1f2b0b29fa215fe5dea960ad76ee7a83c15614a8f91e5"
+  },
+  "id": "DYc84jKDoNFL1lk4",
+  "tags": [
+    {
+      "updatedAt": "2026-03-10T17:25:58.271Z",
+      "createdAt": "2026-03-10T17:25:58.271Z",
+      "id": "ZkCAtpBXpHu84Zym",
+      "name": "ai-news-digest"
+    }
+  ]
 }
