@@ -45,7 +45,10 @@ function startApp() {
 }
 
 function closeServer(server) {
-  return new Promise((resolve) => server.close(resolve));
+  return new Promise((resolve) => {
+    server.closeAllConnections?.();
+    server.close(resolve);
+  });
 }
 
 // ─── /api/chat → n8n /chat ───────────────────────────────────
@@ -92,13 +95,14 @@ test("GET /api/digest forwards to n8n /digest", async () => {
   const { server: app, base } = await startApp();
 
   await withN8nBase(n8nUrl, async () => {
-    const res = await fetch(`${base}/api/digest?range=1d&topic=crypto`);
+    // Note: topic-specific requests bypass n8n (local ingestion).
+    // Only "all news" digest (no topic) forwards to n8n.
+    const res = await fetch(`${base}/api/digest?range=1d`);
     const data = await res.json();
 
     assert.equal(res.status, 200);
     assert.equal(data.markdown, "# Weekly Digest\nFrom n8n");
     assert.equal(data.articleCount, 10);
-    assert.equal(receivedBody.topic, "crypto");
     assert.equal(receivedBody.range, "1d");
   });
 
@@ -129,7 +133,7 @@ test("GET /api/digest handles n8n response with output field", async () => {
 
 // ─── /api/pipeline → n8n /pipeline ──────────────────────────
 
-test.skip("POST /api/pipeline forwards to n8n /pipeline (WIP: fixing n8n workflow)", async () => {
+test("POST /api/pipeline forwards to n8n /pipeline", async () => {
   let receivedBody;
   const { server: n8n, url: n8nUrl } = await startMockN8n({
     "/pipeline": (_req, res, body) => {
@@ -145,10 +149,12 @@ test.skip("POST /api/pipeline forwards to n8n /pipeline (WIP: fixing n8n workflo
   const { server: app, base } = await startApp();
 
   await withN8nBase(n8nUrl, async () => {
+    // Note: topic-specific pipelines bypass n8n (local ingestion).
+    // Only "all news" pipeline (no topicSlug) forwards to n8n.
     const res = await fetch(`${base}/api/pipeline`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topicSlug: "ai", range: "3d" }),
+      body: JSON.stringify({ range: "3d" }),
     });
     const data = await res.json();
 
@@ -156,8 +162,8 @@ test.skip("POST /api/pipeline forwards to n8n /pipeline (WIP: fixing n8n workflo
     assert.equal(data.ingested, 5);
     assert.equal(data.indexed, 12);
     assert.equal(data.digest.markdown, "# Fresh");
-    assert.equal(receivedBody.topicSlug, "ai");
     assert.equal(receivedBody.range, "3d");
+    assert.ok(Array.isArray(receivedBody.feeds), "feeds should be an array");
   });
 
   await closeServer(app);

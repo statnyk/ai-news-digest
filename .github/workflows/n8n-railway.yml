@@ -34,7 +34,8 @@ jobs:
         run: npm ci && npm ci --prefix frontend
 
       - name: Run tests
-        run: node --test tests/*.test.js
+        run: node --test --test-timeout=15000 tests/*.test.js
+        timeout-minutes: 3
 
       - name: Build frontend
         run: npm run build --prefix frontend

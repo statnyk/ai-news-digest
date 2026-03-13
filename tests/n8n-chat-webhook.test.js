@@ -20,7 +20,10 @@ function createMockN8nServer(handler) {
 }
 
 function closeServer(server) {
-  return new Promise((resolve) => server.close(resolve));
+  return new Promise((resolve) => {
+    server.closeAllConnections?.();
+    server.close(resolve);
+  });
 }
 
 function withN8nBase(url, fn) {
