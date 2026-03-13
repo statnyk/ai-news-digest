@@ -46,9 +46,6 @@ export function registerDigestRoutes(app) {
           }
         }
         const data = await forwardToN8n("digest", { topic: topicSlug, topicSlug, range });
-        // #region agent log
-        fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'digest/http.js:afterForward',message:'parsed n8n data',data:{type:typeof data,isArray:Array.isArray(data),keys:data&&typeof data==='object'?Object.keys(data):[],hasMarkdown:!!(data?.markdown),hasJsonMarkdown:!!(data?.json?.markdown),preview:JSON.stringify(data)?.slice(0,400)},timestamp:Date.now(),hypothesisId:'H1-H4'})}).catch(()=>{});
-        // #endregion
         // n8n responseMode lastNode may return [{json:{…}}] or {json:{…}}; normalize
         const payload = Array.isArray(data) && data[0]?.json != null
           ? data[0].json
@@ -81,9 +78,6 @@ export function registerDigestRoutes(app) {
         markdown: result.markdown,
       });
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'digest/http.js:catch',message:'digest route threw',data:{errMessage:err.message,errStack:err.stack?.slice(0,300)},timestamp:Date.now(),hypothesisId:'H2-H3'})}).catch(()=>{});
-      // #endregion
       log("API", `Digest error: ${err.message}`);
       res.status(500).json({ error: "Failed to generate digest." });
     }

@@ -22,23 +22,23 @@ export function registerPipelineRoutes(app) {
       }
       try {
         const data = await forwardToN8n("pipeline", { topicSlug, range });
-        let digest = data.digest ?? null;
-        // Pipeline workflow returns digest for all articles; when a folder is selected, fetch
-        // a topic-filtered digest from the digest webhook so the UI shows the relevant digest.
-        if (topicSlug) {
-          try {
-            const digestData = await forwardToN8n("digest", { topic: topicSlug, topicSlug, range });
-            const payload = Array.isArray(digestData) && digestData[0]?.json != null
-              ? digestData[0].json
-              : (digestData?.json ?? digestData);
-            let markdown = payload?.markdown || payload?.output || payload?.text || "";
-            markdown = await formatDigestTitle(markdown, topicSlug, range);
-            digest = { articleCount: payload?.articleCount ?? null, markdown };
-          } catch (digestErr) {
-            log("API", `n8n digest after pipeline: ${digestErr.message}`);
-          }
-        } else if (data.digest?.markdown) {
-          data.digest.markdown = await formatDigestTitle(data.digest.markdown, null, range);
+        // Digest always comes from the digest webhook (02) so it respects topicSlug + range
+        // and uses the same markdown format. Pipeline 05 no longer returns a digest.
+        let digest = null;
+        try {
+          const digestData = await forwardToN8n("digest", {
+            topic: topicSlug || undefined,
+            topicSlug: topicSlug || "",
+            range: range || "1w",
+          });
+          const payload = Array.isArray(digestData) && digestData[0]?.json != null
+            ? digestData[0].json
+            : (digestData?.json ?? digestData);
+          let markdown = payload?.markdown || payload?.output || payload?.text || "";
+          markdown = await formatDigestTitle(markdown, topicSlug || null, range);
+          digest = { articleCount: payload?.articleCount ?? null, markdown };
+        } catch (digestErr) {
+          log("API", `n8n digest after pipeline: ${digestErr.message}`);
         }
         return res.json({
           ingested: data.ingested ?? 0,

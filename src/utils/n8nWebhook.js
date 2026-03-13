@@ -21,12 +21,7 @@ export async function forwardToN8n(path, body) {
     body: JSON.stringify(body),
   });
 
-  const contentType = res.headers.get("content-type") || "";
   const text = await res.text();
-
-  // #region agent log
-  fetch('http://127.0.0.1:7309/ingest/94f6280d-beb0-49b9-a946-c96c4c3de1cb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f5b975'},body:JSON.stringify({sessionId:'f5b975',location:'n8nWebhook.js:afterFetch',message:'n8n raw response',data:{path,status:res.status,contentType,textLen:text?.length,textPreview:text?.slice(0,500)},timestamp:Date.now(),hypothesisId:'H1-H3'})}).catch(()=>{});
-  // #endregion
 
   if (!res.ok) {
     throw new Error(`n8n webhook error (${res.status}): ${text}`);
